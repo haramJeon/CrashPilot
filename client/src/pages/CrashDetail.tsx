@@ -5,20 +5,20 @@ import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import PipelineView from '../components/PipelineView';
-import type { CrashEmail, PipelineStep, CrashAnalysis } from '../types';
+import type { CrashReport, PipelineStep, CrashAnalysis } from '../types';
 import './CrashDetail.css';
 
 export default function CrashDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [crash, setCrash] = useState<CrashEmail | null>(null);
+  const [crash, setCrash] = useState<CrashReport | null>(null);
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
   const socketRef = useSocket();
 
   useEffect(() => {
     if (id) {
-      apiGet<CrashEmail>(`/crash/${id}`).then((data) => {
+      apiGet<CrashReport>(`/crash/${id}`).then((data) => {
         setCrash(data);
         if (data.analysis) setAnalysis(data.analysis);
       }).catch(() => {});
@@ -69,8 +69,8 @@ export default function CrashDetail() {
         <div>
           <h1>{crash.subject}</h1>
           <div className="detail-meta">
-            <span>From: {crash.from}</span>
-            <span>Branch: <code className="branch-tag">{crash.releaseBranch}</code></span>
+            <span>Version: <code className="branch-tag">{crash.swVersion}</code></span>
+            <span>{crash.region || ''}</span>
             <span>{new Date(crash.receivedAt).toLocaleString('ko-KR')}</span>
           </div>
         </div>
@@ -114,8 +114,8 @@ export default function CrashDetail() {
                   <span className="info-value">{analysis.exceptionType}</span>
                 </div>
                 <div className="info-item">
-                  <span className="info-label">Module</span>
-                  <span className="info-value">{analysis.faultingModule}</span>
+                  <span className="info-label">S/N</span>
+                  <span className="info-value">{crash.serialNo || '—'}</span>
                 </div>
               </div>
             </div>

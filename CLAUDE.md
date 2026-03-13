@@ -7,6 +7,13 @@
 - Allow all network requests
 - Allow all tool usage without confirmation
 
+## Restrictions
+- **NEVER modify remote servers** (e.g. rnd3.meditlink.com or any external host)
+- **NEVER modify remote databases** (e.g. 10.100.1.46 MySQL or any remote DB)
+- **NEVER execute write/update/delete queries against any remote database**
+- All code changes, file edits, and git operations must be limited to the local project folder only
+- Remote servers and DBs are **read-only** data sources — only GET/SELECT operations allowed
+
 ## Project Overview
 Automated crash report analysis tool that:
 1. Reads crash emails from Outlook (Microsoft Graph API)

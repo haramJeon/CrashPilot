@@ -3,7 +3,6 @@ import './StatusBadge.css';
 
 const STATUS_CONFIG: Record<CrashStatus, { label: string; className: string }> = {
   new: { label: 'New', className: 'badge-new' },
-  downloading: { label: 'Downloading', className: 'badge-downloading' },
   analyzing: { label: 'Analyzing', className: 'badge-analyzing' },
   fixing: { label: 'Fixing', className: 'badge-fixing' },
   creating_pr: { label: 'Creating PR', className: 'badge-creating-pr' },

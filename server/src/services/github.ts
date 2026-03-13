@@ -20,7 +20,6 @@ export async function createPullRequest(params: {
 
 ### Exception
 - **Type**: ${params.analysis.exceptionType}
-- **Module**: ${params.analysis.faultingModule}
 
 ### Root Cause
 ${params.analysis.rootCause}

@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "additionalDirectories": [
-      "e:\\git-repository\\crashPilot"
-    ],
     "allow": [
       "Bash(*)",
       "Edit(*)",
@@ -10,7 +7,11 @@
       "Read(*)",
       "Glob(*)",
       "Grep(*)",
-      "Agent(*)"
+      "Agent(*)",
+      "WebFetch(domain:rnd3.meditlink.com)"
+    ],
+    "additionalDirectories": [
+      "e:\\git-repository\\crashPilot"
     ]
   }
 }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { loadConfig, saveConfig, getCurrentPlatform } from '../services/config';
+import { fetchSoftwares } from '../services/crashReportServer';
 
 export const configRouter = Router();
 
@@ -20,6 +21,16 @@ configRouter.get('/', (_req, res) => {
 
 configRouter.get('/platform', (_req, res) => {
   res.json({ platform: getCurrentPlatform() });
+});
+
+// Available softwares from crashReportOrganizer for UI selection
+configRouter.get('/softwares', async (_req, res) => {
+  try {
+    const softwares = await fetchSoftwares();
+    res.json(softwares);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 configRouter.post('/', (req, res) => {
@@ -43,9 +54,9 @@ configRouter.get('/validate', (_req, res) => {
   const platform = getCurrentPlatform();
   const issues: string[] = [];
 
-  if (!config.outlook.clientId) issues.push('Outlook Client ID is missing');
-  if (!config.outlook.tenantId) issues.push('Outlook Tenant ID is missing');
+  if (!config.crashReportServer.url) issues.push('Crash Report Server URL is missing');
   if (!config.claude.apiKey) issues.push('Claude API Key is missing');
+  if (!config.git.repoPath) issues.push('Git Repository Path is missing');
   if (!config.github.token) issues.push('GitHub Token is missing');
   if (!config.github.owner) issues.push('GitHub Owner is missing');
   if (!config.github.repo) issues.push('GitHub Repo is missing');

@@ -5,7 +5,6 @@ import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
 import path from 'path';
 import { configRouter } from './routes/config';
-import { authRouter } from './routes/auth';
 import { crashRouter } from './routes/crash';
 import { pipelineRouter } from './routes/pipeline';
 
@@ -26,7 +25,6 @@ app.use(express.static(clientDist));
 
 // API routes
 app.use('/api/config', configRouter);
-app.use('/api/auth', authRouter);
 app.use('/api/crash', crashRouter(io));
 app.use('/api/pipeline', pipelineRouter(io));
 

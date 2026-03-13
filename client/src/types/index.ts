@@ -1,18 +1,30 @@
-export interface CrashEmail {
-  id: string;
+export interface CrashReport {
+  id: number;
   subject: string;
-  from: string;
+  swVersion: string;
   receivedAt: string;
-  body: string;
   dumpUrl: string;
-  releaseBranch: string;
+  exceptionCode?: string;
+  bugcheck?: string;
+  region?: string;
+  country?: string;
+  serialNo?: string;
+  softwareId: number;
+  softwareName?: string;
+  stackTraces: StackEntry[];
+  mainStackTraces: StackEntry[];
   status: CrashStatus;
   analysis?: CrashAnalysis;
 }
 
+export interface StackEntry {
+  id?: number;
+  dllName: string;
+  functionName?: string;
+}
+
 export type CrashStatus =
   | 'new'
-  | 'downloading'
   | 'analyzing'
   | 'fixing'
   | 'creating_pr'
@@ -22,8 +34,6 @@ export type CrashStatus =
 export interface CrashAnalysis {
   callStack: string;
   exceptionType: string;
-  exceptionMessage: string;
-  faultingModule: string;
   rootCause: string;
   suggestedFix: string;
   fixedFiles: FixedFile[];
@@ -40,21 +50,14 @@ export interface FixedFile {
 export type Platform = 'windows' | 'macos';
 
 export interface DebuggerConfig {
-  windows: {
-    cdbPath: string;
-    symbolPath: string;
-  };
-  macos: {
-    lldbPath: string;
-    dsymPath: string;
-  };
+  windows: { cdbPath: string; symbolPath: string };
+  macos: { lldbPath: string; dsymPath: string };
 }
 
 export interface AppConfig {
-  outlook: {
-    clientId: string;
-    tenantId: string;
-    mailFilter: string;
+  crashReportServer: {
+    url: string;
+    softwareIds: number[];
   };
   claude: {
     apiKey: string;
@@ -67,6 +70,7 @@ export interface AppConfig {
   debugger: DebuggerConfig;
   git: {
     repoPath: string;
+    branchPrefix: string;
   };
 }
 
@@ -74,4 +78,9 @@ export interface PipelineStep {
   name: string;
   status: 'pending' | 'running' | 'done' | 'error';
   message?: string;
+}
+
+export interface ApiSoftware {
+  id: number;
+  name: string;
 }

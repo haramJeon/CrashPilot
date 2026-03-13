@@ -1,27 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Save, CheckCircle, AlertCircle, Link, Unlink, Loader } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Save, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiGet, apiPost } from '../hooks/useApi';
-import type { AppConfig, Platform } from '../types';
+import type { AppConfig, Platform, ApiSoftware } from '../types';
 import './Settings.css';
-
-interface AuthStatus {
-  connected: boolean;
-  account?: string;
-}
 
 export default function Settings() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [platform, setPlatform] = useState<Platform>('windows');
+  const [softwares, setSoftwares] = useState<ApiSoftware[]>([]);
+  const [loadingSoftwares, setLoadingSoftwares] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [validation, setValidation] = useState<{ valid: boolean; issues: string[] } | null>(null);
-  const [authStatus, setAuthStatus] = useState<AuthStatus>({ connected: false });
-  const [connecting, setConnecting] = useState(false);
-
-  const refreshAuthStatus = useCallback(async () => {
-    const status = await apiGet<AuthStatus>('/auth/status');
-    setAuthStatus(status);
-  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -34,7 +24,6 @@ export default function Settings() {
         setConfig(data);
         setPlatform(plat.platform);
         setValidation(val);
-        await refreshAuthStatus();
       } catch (e: any) {
         setMessage({ type: 'error', text: e.message });
       }
@@ -42,42 +31,23 @@ export default function Settings() {
     init();
   }, []);
 
-  // Listen for OAuth popup result
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'auth_success') {
-        setConnecting(false);
-        refreshAuthStatus();
-        setMessage({ type: 'success', text: 'Outlook connected successfully!' });
-      } else if (e.data?.type === 'auth_error') {
-        setConnecting(false);
-        setMessage({ type: 'error', text: `Outlook auth failed: ${e.data.error}` });
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  const connectOutlook = async () => {
-    if (!config?.outlook.clientId || !config?.outlook.tenantId) {
-      setMessage({ type: 'error', text: 'Save Client ID and Tenant ID first.' });
-      return;
-    }
-    setConnecting(true);
-    setMessage(null);
+  const loadSoftwares = async () => {
+    setLoadingSoftwares(true);
     try {
-      const { url } = await apiGet<{ url: string }>('/auth/login');
-      window.open(url, 'outlook-auth', 'width=520,height=620,left=200,top=100');
+      const list = await apiGet<ApiSoftware[]>('/config/softwares');
+      setSoftwares(list);
     } catch (e: any) {
-      setConnecting(false);
-      setMessage({ type: 'error', text: e.message });
+      setMessage({ type: 'error', text: `Failed to load softwares: ${e.message}` });
+    } finally {
+      setLoadingSoftwares(false);
     }
   };
 
-  const disconnectOutlook = async () => {
-    await apiPost('/auth/logout');
-    setAuthStatus({ connected: false });
-    setMessage({ type: 'success', text: 'Outlook disconnected.' });
+  const toggleSoftwareId = (id: number) => {
+    if (!config) return;
+    const ids = config.crashReportServer.softwareIds;
+    const newIds = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+    setConfig({ ...config, crashReportServer: { ...config.crashReportServer, softwareIds: newIds } });
   };
 
   const saveSettings = async () => {
@@ -126,59 +96,52 @@ export default function Settings() {
       {validation && !validation.valid && (
         <div className="validation-warnings">
           <h4><AlertCircle size={16} /> Configuration Issues</h4>
-          <ul>
-            {validation.issues.map((issue, idx) => <li key={idx}>{issue}</li>)}
-          </ul>
+          <ul>{validation.issues.map((issue, idx) => <li key={idx}>{issue}</li>)}</ul>
         </div>
       )}
 
       <div className="settings-grid">
-        {/* Outlook */}
+        {/* Crash Report Server */}
         <div className="settings-section">
-          <h3>Microsoft Outlook</h3>
-
-          {/* Connection status */}
-          <div className="auth-status-bar">
-            {authStatus.connected ? (
-              <>
-                <span className="auth-connected">
-                  <CheckCircle size={16} />
-                  Connected: {authStatus.account}
-                </span>
-                <button className="btn btn-sm btn-danger" onClick={disconnectOutlook}>
-                  <Unlink size={14} />
-                  Disconnect
-                </button>
-              </>
+          <h3>Crash Report Server</h3>
+          <div className="field">
+            <label>Server URL</label>
+            <input
+              value={config.crashReportServer.url}
+              onChange={(e) => setConfig({ ...config, crashReportServer: { ...config.crashReportServer, url: e.target.value } })}
+              placeholder="http://rnd3.meditlink.com:5000"
+            />
+          </div>
+          <div className="field">
+            <label>
+              Watch Software IDs
+              <button className="btn btn-sm btn-accent" style={{ marginLeft: 8 }} onClick={loadSoftwares} disabled={loadingSoftwares}>
+                <RefreshCw size={12} className={loadingSoftwares ? 'spinning' : ''} />
+                Load
+              </button>
+            </label>
+            {softwares.length > 0 ? (
+              <div className="software-checkboxes">
+                {softwares.map((sw) => (
+                  <label key={sw.id} className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={config.crashReportServer.softwareIds.includes(sw.id)}
+                      onChange={() => toggleSoftwareId(sw.id)}
+                    />
+                    <span>{sw.name} <span className="field-hint">(#{sw.id})</span></span>
+                  </label>
+                ))}
+              </div>
             ) : (
-              <>
-                <span className="auth-disconnected">
-                  <AlertCircle size={16} />
-                  Not connected
-                </span>
-                <button className="btn btn-sm btn-accent" onClick={connectOutlook} disabled={connecting}>
-                  {connecting ? <Loader size={14} className="spinning" /> : <Link size={14} />}
-                  {connecting ? 'Connecting...' : 'Connect Outlook'}
-                </button>
-              </>
+              <p className="field-help">
+                Click "Load" to fetch software list from server.
+                {config.crashReportServer.softwareIds.length > 0
+                  ? <> Currently watching: <strong>{config.crashReportServer.softwareIds.join(', ')}</strong></>
+                  : ' Leave empty to fetch all softwares.'}
+              </p>
             )}
           </div>
-
-          <div className="field">
-            <label>Client ID <span className="field-hint">(Azure AD App → Overview)</span></label>
-            <input value={config.outlook.clientId} onChange={(e) => update('outlook', 'clientId', e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-          </div>
-          <div className="field">
-            <label>Tenant ID <span className="field-hint">(Azure AD App → Overview)</span></label>
-            <input value={config.outlook.tenantId} onChange={(e) => update('outlook', 'tenantId', e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-          </div>
-          <div className="field">
-            <label>Mail Filter</label>
-            <input value={config.outlook.mailFilter} onChange={(e) => update('outlook', 'mailFilter', e.target.value)} placeholder="subject:'Crash Report'" />
-          </div>
-          <p className="field-help">
-            Azure AD App type: <strong>Public client</strong> · Permission: <strong>Mail.Read (Delegated)</strong> · Redirect URI: <code>http://localhost:3001/api/auth/callback</code>
-          </p>
         </div>
 
         {/* Claude */}
@@ -207,9 +170,26 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Git */}
+        <div className="settings-section">
+          <h3>Git Repository</h3>
+          <div className="field">
+            <label>Local Repository Path</label>
+            <input value={config.git.repoPath} onChange={(e) => update('git', 'repoPath', e.target.value)} placeholder={platform === 'macos' ? '/Users/you/projects/my-repo' : 'C:\\Projects\\my-repo'} />
+          </div>
+          <div className="field">
+            <label>Release Branch Prefix <span className="field-hint">(sw_version to branch mapping)</span></label>
+            <input value={config.git.branchPrefix} onChange={(e) => update('git', 'branchPrefix', e.target.value)} placeholder="release/" />
+            <p className="field-help">e.g. "release/" + "2.1.3.456" → branch "release/2.1.3"</p>
+          </div>
+        </div>
+
         {/* Debugger */}
         <div className="settings-section">
           <h3>Debugging Tools <span className="platform-badge">{platform === 'macos' ? 'macOS' : 'Windows'}</span></h3>
+          <p className="field-help" style={{ marginBottom: 14 }}>
+            Stack traces are pre-loaded from the server. These are used only for raw dump re-analysis.
+          </p>
           {platform === 'windows' ? (
             <>
               <div className="field">
@@ -233,15 +213,6 @@ export default function Settings() {
               </div>
             </>
           )}
-        </div>
-
-        {/* Git */}
-        <div className="settings-section">
-          <h3>Git Repository</h3>
-          <div className="field">
-            <label>Local Repository Path</label>
-            <input value={config.git.repoPath} onChange={(e) => update('git', 'repoPath', e.target.value)} placeholder={platform === 'macos' ? '/Users/you/projects/my-repo' : 'C:\\Projects\\my-repo'} />
-          </div>
         </div>
       </div>
     </div>

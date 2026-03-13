@@ -10,10 +10,9 @@ export function getCurrentPlatform(): Platform {
 }
 
 const DEFAULT_CONFIG: AppConfig = {
-  outlook: {
-    clientId: '',
-    tenantId: '',
-    mailFilter: "subject:'Crash Report'",
+  crashReportServer: {
+    url: 'http://rnd3.meditlink.com:5000',
+    softwareIds: [],
   },
   claude: {
     apiKey: '',
@@ -35,6 +34,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   git: {
     repoPath: '',
+    branchPrefix: 'release/',
   },
 };
 
@@ -42,11 +42,10 @@ export function loadConfig(): AppConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const saved = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-      // Deep merge to preserve nested defaults (e.g. debugger.windows when only debugger.macos is saved)
       return {
         ...DEFAULT_CONFIG,
         ...saved,
-        outlook: { ...DEFAULT_CONFIG.outlook, ...saved.outlook },
+        crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...saved.crashReportServer },
         claude: { ...DEFAULT_CONFIG.claude, ...saved.claude },
         github: { ...DEFAULT_CONFIG.github, ...saved.github },
         debugger: {

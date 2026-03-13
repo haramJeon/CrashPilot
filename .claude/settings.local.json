@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "e:\\git-repository\\crashPilot"
+    ],
+    "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Agent(*)"
+    ]
+  }
+}

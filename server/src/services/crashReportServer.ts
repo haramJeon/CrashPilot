@@ -4,8 +4,14 @@ import { CrashReport, ApiSoftware, ApiReport, ApiReportDetail } from '../types';
 async function apiFetch<T>(path: string): Promise<T> {
   const config = loadConfig();
   const baseUrl = config.crashReportServer.url.replace(/\/$/, '');
-  const res = await fetch(`${baseUrl}${path}`);
-  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+  const fullUrl = `${baseUrl}${path}`;
+  console.log(`[crashReportServer] GET ${fullUrl}`);
+  const res = await fetch(fullUrl);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Expected JSON but got ${contentType} from ${fullUrl} (status ${res.status})`);
+  }
+  if (!res.ok) throw new Error(`API error ${res.status}: ${fullUrl}`);
   return res.json() as Promise<T>;
 }
 

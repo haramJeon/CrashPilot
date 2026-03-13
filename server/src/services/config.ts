@@ -11,7 +11,7 @@ export function getCurrentPlatform(): Platform {
 
 const DEFAULT_CONFIG: AppConfig = {
   crashReportServer: {
-    url: 'http://rnd3.meditlink.com:5000',
+    url: 'http://rnd3.meditlink.com:5001',
     softwareIds: [],
   },
   claude: {

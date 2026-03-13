@@ -12,9 +12,7 @@ export function getCurrentPlatform(): Platform {
 const DEFAULT_CONFIG: AppConfig = {
   outlook: {
     clientId: '',
-    clientSecret: '',
     tenantId: '',
-    userId: '',
     mailFilter: "subject:'Crash Report'",
   },
   claude: {

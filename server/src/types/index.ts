@@ -53,9 +53,7 @@ export interface DebuggerConfig {
 export interface AppConfig {
   outlook: {
     clientId: string;
-    clientSecret: string;
     tenantId: string;
-    userId: string;
     mailFilter: string;
   };
   claude: {

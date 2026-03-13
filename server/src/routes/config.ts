@@ -7,10 +7,6 @@ configRouter.get('/', (_req, res) => {
   const config = loadConfig();
   const masked = {
     ...config,
-    outlook: {
-      ...config.outlook,
-      clientSecret: config.outlook.clientSecret ? '••••••••' : '',
-    },
     claude: {
       apiKey: config.claude.apiKey ? '••••••••' : '',
     },
@@ -30,9 +26,6 @@ configRouter.post('/', (req, res) => {
   const current = loadConfig();
   const incoming = req.body;
 
-  if (incoming.outlook?.clientSecret === '••••••••') {
-    incoming.outlook.clientSecret = current.outlook.clientSecret;
-  }
   if (incoming.claude?.apiKey === '••••••••') {
     incoming.claude.apiKey = current.claude.apiKey;
   }
@@ -51,7 +44,6 @@ configRouter.get('/validate', (_req, res) => {
   const issues: string[] = [];
 
   if (!config.outlook.clientId) issues.push('Outlook Client ID is missing');
-  if (!config.outlook.clientSecret) issues.push('Outlook Client Secret is missing');
   if (!config.outlook.tenantId) issues.push('Outlook Tenant ID is missing');
   if (!config.claude.apiKey) issues.push('Claude API Key is missing');
   if (!config.github.token) issues.push('GitHub Token is missing');

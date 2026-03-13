@@ -132,6 +132,10 @@ export default function Settings() {
             <input value={config.git.branchPrefix} onChange={(e) => update('git', 'branchPrefix', e.target.value)} placeholder="release/" />
             <p className="field-help">e.g. "release/" + "2.1.3.456" → branch "release/2.1.3"</p>
           </div>
+          <div className="field">
+            <label>Default Branch <span className="field-hint">(fallback when version is unknown)</span></label>
+            <input value={config.git.defaultBranch} onChange={(e) => update('git', 'defaultBranch', e.target.value)} placeholder="master" />
+          </div>
         </div>
 
         {/* Debugger */}

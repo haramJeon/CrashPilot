@@ -71,6 +71,7 @@ export interface AppConfig {
   git: {
     repoPath: string;
     branchPrefix: string;
+    defaultBranch: string;
   };
 }
 

@@ -11,9 +11,32 @@ function getGit(): SimpleGit {
 
 export async function checkoutBranch(branch: string): Promise<void> {
   const git = getGit();
-  await git.fetch();
-  await git.checkout(branch);
-  await git.pull('origin', branch);
+  await git.fetch(['--all']);
+
+  // Check if branch exists locally
+  const localBranches = await git.branchLocal();
+  if (localBranches.all.includes(branch)) {
+    await git.checkout(branch);
+    await git.pull('origin', branch);
+    return;
+  }
+
+  // Try to track from remote
+  const remoteBranch = `origin/${branch}`;
+  const allBranches = await git.branch(['-a']);
+  const remoteExists = allBranches.all.some(
+    (b) => b.trim() === `remotes/${remoteBranch}` || b.trim() === remoteBranch
+  );
+
+  if (!remoteExists) {
+    const available = allBranches.all
+      .filter((b) => b.includes('remotes/origin/'))
+      .map((b) => b.trim())
+      .join('\n');
+    throw new Error(`Branch "${branch}" not found.\nAvailable remote branches:\n${available}`);
+  }
+
+  await git.checkout(['-b', branch, '--track', remoteBranch]);
 }
 
 export async function createFixBranch(baseBranch: string, crashId: string): Promise<string> {

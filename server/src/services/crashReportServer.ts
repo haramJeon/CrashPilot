@@ -135,8 +135,12 @@ export function formatCallStack(report: CrashReport): string {
 export function getReleaseBranch(report: CrashReport): string {
   const config = loadConfig();
   const prefix = config.git.branchPrefix || 'release/';
-  if (!report.swVersion) return 'main';
+  const defaultBranch = config.git.defaultBranch || 'master';
+
+  if (!report.swVersion) return defaultBranch;
+
   // e.g. "2.1.3.456" → "release/2.1.3"
-  const shortVersion = report.swVersion.split('.').slice(0, 3).join('.');
+  const parts = report.swVersion.split('.');
+  const shortVersion = parts.slice(0, 3).join('.');
   return `${prefix}${shortVersion}`;
 }

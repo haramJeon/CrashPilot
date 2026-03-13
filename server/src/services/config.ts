@@ -35,6 +35,7 @@ const DEFAULT_CONFIG: AppConfig = {
   git: {
     repoPath: '',
     branchPrefix: 'release/',
+    defaultBranch: 'master',
   },
 };
 

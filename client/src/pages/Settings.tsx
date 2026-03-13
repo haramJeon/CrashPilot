@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Save, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Save, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiGet, apiPost } from '../hooks/useApi';
-import type { AppConfig, Platform, ApiSoftware } from '../types';
+import type { AppConfig, Platform } from '../types';
 import './Settings.css';
 
 export default function Settings() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [platform, setPlatform] = useState<Platform>('windows');
-  const [softwares, setSoftwares] = useState<ApiSoftware[]>([]);
-  const [loadingSoftwares, setLoadingSoftwares] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [validation, setValidation] = useState<{ valid: boolean; issues: string[] } | null>(null);
@@ -30,25 +28,6 @@ export default function Settings() {
     };
     init();
   }, []);
-
-  const loadSoftwares = async () => {
-    setLoadingSoftwares(true);
-    try {
-      const list = await apiGet<ApiSoftware[]>('/config/softwares');
-      setSoftwares(list);
-    } catch (e: any) {
-      setMessage({ type: 'error', text: `Failed to load softwares: ${e.message}` });
-    } finally {
-      setLoadingSoftwares(false);
-    }
-  };
-
-  const toggleSoftwareId = (id: number) => {
-    if (!config) return;
-    const ids = config.crashReportServer.softwareIds;
-    const newIds = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
-    setConfig({ ...config, crashReportServer: { ...config.crashReportServer, softwareIds: newIds } });
-  };
 
   const saveSettings = async () => {
     if (!config) return;
@@ -109,38 +88,9 @@ export default function Settings() {
             <input
               value={config.crashReportServer.url}
               onChange={(e) => setConfig({ ...config, crashReportServer: { ...config.crashReportServer, url: e.target.value } })}
-              placeholder="http://rnd3.meditlink.com:5000"
+              placeholder="http://rnd3.meditlink.com:5001"
             />
-          </div>
-          <div className="field">
-            <label>
-              Watch Software IDs
-              <button className="btn btn-sm btn-accent" style={{ marginLeft: 8 }} onClick={loadSoftwares} disabled={loadingSoftwares}>
-                <RefreshCw size={12} className={loadingSoftwares ? 'spinning' : ''} />
-                Load
-              </button>
-            </label>
-            {softwares.length > 0 ? (
-              <div className="software-checkboxes">
-                {softwares.map((sw) => (
-                  <label key={sw.id} className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={config.crashReportServer.softwareIds.includes(sw.id)}
-                      onChange={() => toggleSoftwareId(sw.id)}
-                    />
-                    <span>{sw.name} <span className="field-hint">(#{sw.id})</span></span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <p className="field-help">
-                Click "Load" to fetch software list from server.
-                {config.crashReportServer.softwareIds.length > 0
-                  ? <> Currently watching: <strong>{config.crashReportServer.softwareIds.join(', ')}</strong></>
-                  : ' Leave empty to fetch all softwares.'}
-              </p>
-            )}
+            <p className="field-help">Software and date filters are available on the Dashboard.</p>
           </div>
         </div>
 

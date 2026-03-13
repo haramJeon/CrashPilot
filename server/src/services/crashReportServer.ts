@@ -19,12 +19,22 @@ export async function fetchSoftwares(): Promise<ApiSoftware[]> {
   return apiFetch<ApiSoftware[]>('/softwares/');
 }
 
-export async function fetchReports(softwareId: number, page = 1): Promise<CrashReport[]> {
-  const config = loadConfig();
-  const raw = await apiFetch<{ reports: any[] }>(
-    `/reports/?software=${softwareId}&page=${page}`
-  );
+export interface FetchFilter {
+  softwareId?: number;   // 0 or undefined = all
+  startDate?: string;    // YYYY-MM-DD
+  endDate?: string;      // YYYY-MM-DD
+}
 
+export async function fetchReports(
+  softwareId: number,
+  filter: FetchFilter = {},
+  page = 1
+): Promise<CrashReport[]> {
+  let qs = `software=${softwareId}&page=${page}`;
+  if (filter.startDate) qs += `&start=${filter.startDate}`;
+  if (filter.endDate)   qs += `&end=${filter.endDate}`;
+
+  const raw = await apiFetch<{ reports: any[] }>(`/reports/?${qs}`);
   return (raw.reports || []).map((r) => mapReport(r, softwareId));
 }
 
@@ -33,27 +43,29 @@ export async function fetchReportDetail(reportId: number): Promise<CrashReport> 
   return mapReportDetail(raw);
 }
 
-export async function fetchAllNewReports(): Promise<CrashReport[]> {
+export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<CrashReport[]> {
   const config = loadConfig();
-  const softwareIds = config.crashReportServer.softwareIds;
+  let softwareIds = [...config.crashReportServer.softwareIds];
 
-  if (softwareIds.length === 0) {
-    // Fetch all softwares and use all IDs
+  // If a specific software is selected in the filter, use only that
+  if (filter.softwareId && filter.softwareId !== 0) {
+    softwareIds = [filter.softwareId];
+  } else if (softwareIds.length === 0) {
+    // No config restriction → fetch all
     const softwares = await fetchSoftwares();
-    softwareIds.push(...softwares.map((s) => s.id));
+    softwareIds = softwares.map((s) => s.id);
   }
 
   const results: CrashReport[] = [];
   for (const softwareId of softwareIds) {
     try {
-      const reports = await fetchReports(softwareId);
+      const reports = await fetchReports(softwareId, filter);
       results.push(...reports);
     } catch (e) {
       console.error(`Failed to fetch reports for software ${softwareId}:`, e);
     }
   }
 
-  // Sort by date descending
   return results.sort(
     (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
   );

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
-import { fetchAllNewReports, fetchReportDetail } from '../services/crashReportServer';
+import { fetchAllNewReports, fetchReportDetail, fetchSoftwares } from '../services/crashReportServer';
+import type { FetchFilter } from '../services/crashReportServer';
 import type { CrashReport } from '../types';
 
 // In-memory store
@@ -9,11 +10,26 @@ let crashReports: CrashReport[] = [];
 export function crashRouter(io: SocketIOServer): Router {
   const router = Router();
 
-  // Fetch crash reports from crashReportOrganizer server
-  router.post('/fetch', async (_req, res) => {
+  // Get software list for Dashboard filter
+  router.get('/softwares', async (_req, res) => {
+    try {
+      const list = await fetchSoftwares();
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Fetch crash reports with optional filters
+  router.post('/fetch', async (req, res) => {
+    const filter: FetchFilter = {
+      softwareId: req.body?.softwareId ? Number(req.body.softwareId) : undefined,
+      startDate: req.body?.startDate || undefined,
+      endDate: req.body?.endDate || undefined,
+    };
     try {
       io.emit('status', { message: 'Fetching crash reports from server...' });
-      crashReports = await fetchAllNewReports();
+      crashReports = await fetchAllNewReports(filter);
       io.emit('crashes:updated', crashReports);
       res.json({ count: crashReports.length, crashes: crashReports });
     } catch (error: any) {

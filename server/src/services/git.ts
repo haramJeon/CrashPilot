@@ -1,8 +1,64 @@
 import simpleGit from 'simple-git';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { loadConfig } from './config';
 import { FixedFile } from '../types';
+
+export interface RemoteRef {
+  name: string;   // full ref name, e.g. "refs/heads/release/2.1.3"
+  short: string;  // short name, e.g. "release/2.1.3"
+  type: 'branch' | 'tag';
+}
+
+/**
+ * List all remote branches and tags without cloning.
+ * Uses: git ls-remote --heads --tags <url>
+ */
+export async function listRemoteRefs(): Promise<RemoteRef[]> {
+  const config = loadConfig();
+  const repoUrl = config.git.repoUrl;
+  if (!repoUrl) throw new Error('Git repoUrl is not configured.');
+
+  const output = execSync(`git ls-remote --heads --tags "${repoUrl}"`, {
+    encoding: 'utf-8',
+    timeout: 30000,
+  });
+
+  const refs: RemoteRef[] = [];
+  for (const line of output.split('\n')) {
+    const parts = line.trim().split('\t');
+    if (parts.length < 2) continue;
+    const ref = parts[1];
+
+    if (ref.startsWith('refs/heads/')) {
+      refs.push({ name: ref, short: ref.replace('refs/heads/', ''), type: 'branch' });
+    } else if (ref.startsWith('refs/tags/') && !ref.endsWith('^{}')) {
+      refs.push({ name: ref, short: ref.replace('refs/tags/', ''), type: 'tag' });
+    }
+  }
+  return refs;
+}
+
+/**
+ * Find branches/tags that match a given sw_version string.
+ * Matches if the ref contains the version (or major.minor.patch part of it).
+ */
+export function findMatchingRefs(refs: RemoteRef[], swVersion: string): RemoteRef[] {
+  if (!swVersion) return [];
+
+  const parts = swVersion.split('.');
+  // Try exact match, then major.minor.patch, then major.minor
+  const candidates = [
+    swVersion,
+    parts.slice(0, 3).join('.'),
+    parts.slice(0, 2).join('.'),
+  ].filter(Boolean);
+
+  return refs.filter((ref) =>
+    candidates.some((v) => ref.short.includes(v))
+  );
+}
 
 /**
  * Convert branch name to a safe folder name.

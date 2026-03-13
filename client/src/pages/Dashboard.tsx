@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X } from 'lucide-react';
+import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X, Search, Loader } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import type { CrashReport, ApiSoftware } from '../types';
 import './Dashboard.css';
+
+interface RemoteRef { name: string; short: string; type: 'branch' | 'tag'; }
 
 function defaultDateRange() {
   const end = new Date();
@@ -20,6 +22,9 @@ function defaultDateRange() {
 function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: number, branch: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(crash.releaseBranch);
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<RemoteRef[]>([]);
+  const [searchError, setSearchError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setValue(crash.releaseBranch); }, [crash.releaseBranch]);
@@ -29,28 +34,75 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
     e.stopPropagation();
     onUpdate(crash.id, value);
     setEditing(false);
+    setMatches([]);
   };
   const cancel = (e: React.MouseEvent) => {
     e.stopPropagation();
     setValue(crash.releaseBranch);
     setEditing(false);
+    setMatches([]);
+    setSearchError('');
+  };
+
+  const searchRemote = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSearching(true);
+    setSearchError('');
+    setMatches([]);
+    try {
+      const refs = await apiGet<RemoteRef[]>(`/git/refs/match?version=${encodeURIComponent(crash.swVersion)}`);
+      setMatches(refs);
+      if (refs.length === 0) setSearchError(`No refs found for "${crash.swVersion}"`);
+    } catch (err: any) {
+      setSearchError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickRef = (e: React.MouseEvent, ref: RemoteRef) => {
+    e.stopPropagation();
+    // Use branch name directly, or derive branch from tag if needed
+    const branch = ref.type === 'branch' ? ref.short : ref.short;
+    setValue(branch);
+    onUpdate(crash.id, branch);
+    setEditing(false);
+    setMatches([]);
   };
 
   if (editing) {
     return (
       <div className="branch-edit" onClick={(e) => e.stopPropagation()}>
-        <input
-          ref={inputRef}
-          className="branch-input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onUpdate(crash.id, value), setEditing(false);
-            if (e.key === 'Escape') setValue(crash.releaseBranch), setEditing(false);
-          }}
-        />
-        <button className="branch-btn branch-btn-ok" onClick={confirm} title="Confirm"><Check size={12} /></button>
-        <button className="branch-btn branch-btn-cancel" onClick={cancel} title="Cancel"><X size={12} /></button>
+        <div className="branch-edit-row">
+          <input
+            ref={inputRef}
+            className="branch-input"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { onUpdate(crash.id, value); setEditing(false); setMatches([]); }
+              if (e.key === 'Escape') { setValue(crash.releaseBranch); setEditing(false); setMatches([]); }
+            }}
+          />
+          <button className="branch-btn" onClick={searchRemote} title="Search remote refs" disabled={searching}>
+            {searching ? <Loader size={12} className="spinning" /> : <Search size={12} />}
+          </button>
+          <button className="branch-btn branch-btn-ok" onClick={confirm} title="Confirm"><Check size={12} /></button>
+          <button className="branch-btn branch-btn-cancel" onClick={cancel} title="Cancel"><X size={12} /></button>
+        </div>
+
+        {/* Remote ref results */}
+        {matches.length > 0 && (
+          <div className="branch-matches">
+            {matches.map((ref) => (
+              <button key={ref.name} className="branch-match-item" onClick={(e) => pickRef(e, ref)}>
+                <span className={`ref-type ref-type-${ref.type}`}>{ref.type}</span>
+                <span className="ref-name">{ref.short}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {searchError && <div className="branch-search-error">{searchError}</div>}
       </div>
     );
   }
@@ -61,7 +113,7 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
       <button
         className="branch-edit-btn"
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-        title="Edit branch"
+        title="Edit / search branch"
       >
         <Pencil size={12} />
       </button>

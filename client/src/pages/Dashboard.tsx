@@ -1,13 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu } from 'lucide-react';
+import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
-import { apiGet, apiPost } from '../hooks/useApi';
+import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import type { CrashReport, ApiSoftware } from '../types';
 import './Dashboard.css';
 
-// Default: last 7 days
 function defaultDateRange() {
   const end = new Date();
   const start = new Date();
@@ -16,6 +15,58 @@ function defaultDateRange() {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),
   };
+}
+
+function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: number, branch: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(crash.releaseBranch);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setValue(crash.releaseBranch); }, [crash.releaseBranch]);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  const confirm = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onUpdate(crash.id, value);
+    setEditing(false);
+  };
+  const cancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setValue(crash.releaseBranch);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="branch-edit" onClick={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          className="branch-input"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onUpdate(crash.id, value), setEditing(false);
+            if (e.key === 'Escape') setValue(crash.releaseBranch), setEditing(false);
+          }}
+        />
+        <button className="branch-btn branch-btn-ok" onClick={confirm} title="Confirm"><Check size={12} /></button>
+        <button className="branch-btn branch-btn-cancel" onClick={cancel} title="Cancel"><X size={12} /></button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="branch-display" onClick={(e) => e.stopPropagation()}>
+      <code className="branch-tag">{crash.releaseBranch}</code>
+      <button
+        className="branch-edit-btn"
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        title="Edit branch"
+      >
+        <Pencil size={12} />
+      </button>
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -31,7 +82,6 @@ export default function Dashboard() {
   useEffect(() => {
     apiGet<CrashReport[]>('/crash').then(setCrashes).catch(() => {});
     apiGet<ApiSoftware[]>('/crash/softwares').then(setSoftwares).catch(() => {});
-
     const socket = socketRef.current;
     if (!socket) return;
     socket.on('crashes:updated', (data: CrashReport[]) => setCrashes(data));
@@ -43,13 +93,8 @@ export default function Dashboard() {
     setLoading(true);
     setStatusMsg('Fetching crash reports...');
     try {
-      const body: Record<string, any> = {
-        startDate: dateRange.start,
-        endDate: dateRange.end,
-      };
-      if (selectedSoftwareId !== 0) {
-        body.softwareId = selectedSoftwareId;
-      }
+      const body: Record<string, any> = { startDate: dateRange.start, endDate: dateRange.end };
+      if (selectedSoftwareId !== 0) body.softwareId = selectedSoftwareId;
       const result = await apiPost<{ count: number }>('/crash/fetch', body);
       setStatusMsg(`Fetched ${result.count} reports`);
     } catch (e: any) {
@@ -65,6 +110,15 @@ export default function Dashboard() {
       navigate(`/crash/${crash.id}`);
     } catch (e: any) {
       setStatusMsg(`Error: ${e.message}`);
+    }
+  };
+
+  const updateBranch = async (id: number, branch: string) => {
+    try {
+      const updated = await apiPatch<CrashReport>(`/crash/${id}`, { releaseBranch: branch });
+      setCrashes((prev) => prev.map((c) => (c.id === id ? { ...c, releaseBranch: updated.releaseBranch } : c)));
+    } catch (e: any) {
+      setStatusMsg(`Error updating branch: ${e.message}`);
     }
   };
 
@@ -84,14 +138,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Filter bar */}
       <div className="filter-bar">
         <div className="filter-group">
           <label>Software</label>
-          <select
-            value={selectedSoftwareId}
-            onChange={(e) => setSelectedSoftwareId(Number(e.target.value))}
-          >
+          <select value={selectedSoftwareId} onChange={(e) => setSelectedSoftwareId(Number(e.target.value))}>
             <option value={0}>All</option>
             {softwares.map((sw) => (
               <option key={sw.id} value={sw.id}>{sw.name}</option>
@@ -100,19 +150,11 @@ export default function Dashboard() {
         </div>
         <div className="filter-group">
           <label>From</label>
-          <input
-            type="date"
-            value={dateRange.start}
-            onChange={(e) => setDateRange((r) => ({ ...r, start: e.target.value }))}
-          />
+          <input type="date" value={dateRange.start} onChange={(e) => setDateRange((r) => ({ ...r, start: e.target.value }))} />
         </div>
         <div className="filter-group">
           <label>To</label>
-          <input
-            type="date"
-            value={dateRange.end}
-            onChange={(e) => setDateRange((r) => ({ ...r, end: e.target.value }))}
-          />
+          <input type="date" value={dateRange.end} onChange={(e) => setDateRange((r) => ({ ...r, end: e.target.value }))} />
         </div>
         <button className="btn btn-primary" onClick={fetchCrashes} disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spinning' : ''} />
@@ -142,7 +184,15 @@ export default function Dashboard() {
             <table className="crash-table">
               <thead>
                 <tr>
-                  <th>#</th><th>Subject</th><th>Version</th><th>Exception</th><th>Region</th><th>Date</th><th>Status</th><th>Action</th>
+                  <th>#</th>
+                  <th>Subject</th>
+                  <th>Version</th>
+                  <th>Branch</th>
+                  <th>Exception</th>
+                  <th>Region</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -151,6 +201,7 @@ export default function Dashboard() {
                     <td className="crash-id">{crash.id}</td>
                     <td className="crash-subject">{crash.subject}</td>
                     <td><code className="branch-tag">{crash.swVersion}</code></td>
+                    <td><BranchCell crash={crash} onUpdate={updateBranch} /></td>
                     <td className="crash-exception">{crash.exceptionCode || crash.bugcheck || '—'}</td>
                     <td className="crash-region">{crash.region || '—'}</td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>

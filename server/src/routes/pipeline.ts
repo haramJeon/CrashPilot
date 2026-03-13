@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
-import { fetchReportDetail, formatCallStack, getReleaseBranch } from '../services/crashReportServer';
+import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { checkoutBranch, createFixBranch, applyFixes, commitAndPush, getSourceFiles } from '../services/git';
 import { createPullRequest } from '../services/github';
@@ -35,7 +35,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       const detail = await fetchReportDetail(crash.id);
       const callStack = formatCallStack(detail);
       const exceptionType = detail.exceptionCode || detail.bugcheck || 'Unknown Exception';
-      const releaseBranch = getReleaseBranch(detail);
+      const releaseBranch = crash.releaseBranch || detail.releaseBranch;
 
       steps[0].status = 'done';
       steps[0].message = `${detail.stackTraces.length + detail.mainStackTraces.length} frames - ${exceptionType}`;

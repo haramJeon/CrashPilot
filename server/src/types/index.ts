@@ -3,6 +3,7 @@ export interface CrashReport {
   id: number;
   subject: string;           // mail_title
   swVersion: string;         // sw_version (maps to git branch)
+  releaseBranch: string;     // computed branch (editable override)
   receivedAt: string;        // date_created
   dumpUrl: string;           // file_link
   exceptionCode?: string;    // EXCEPTION_CODE_STR

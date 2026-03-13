@@ -191,3 +191,69 @@
   white-space: nowrap;
 }
 
+/* ── Branch cell inline edit ── */
+.branch-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.branch-edit-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.crash-row:hover .branch-edit-btn {
+  opacity: 1;
+}
+
+.branch-edit-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.branch-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.branch-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: monospace;
+  width: 160px;
+  outline: none;
+}
+
+.branch-btn {
+  background: none;
+  border: none;
+  padding: 3px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.branch-btn-ok {
+  color: var(--success);
+}
+
+.branch-btn-ok:hover { background: rgba(34, 197, 94, 0.15); }
+
+.branch-btn-cancel {
+  color: var(--error);
+}
+
+.branch-btn-cancel:hover { background: rgba(239, 68, 68, 0.15); }
+

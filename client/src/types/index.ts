@@ -2,6 +2,7 @@ export interface CrashReport {
   id: number;
   subject: string;
   swVersion: string;
+  releaseBranch: string;
   receivedAt: string;
   dumpUrl: string;
   exceptionCode?: string;

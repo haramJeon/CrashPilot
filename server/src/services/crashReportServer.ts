@@ -71,11 +71,22 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
   );
 }
 
+function computeBranch(swVersion: string): string {
+  const config = loadConfig();
+  const prefix = config.git.branchPrefix || 'release/';
+  const defaultBranch = config.git.defaultBranch || 'master';
+  if (!swVersion) return defaultBranch;
+  const shortVersion = swVersion.split('.').slice(0, 3).join('.');
+  return `${prefix}${shortVersion}`;
+}
+
 function mapReport(r: any, softwareId: number): CrashReport {
+  const swVersion = r.sw_version || r.version || '';
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
-    swVersion: r.sw_version || r.version || '',
+    swVersion,
+    releaseBranch: computeBranch(swVersion),
     receivedAt: r.date_created || r.date || new Date().toISOString(),
     dumpUrl: r.file_link || r.fileLink || '',
     exceptionCode: r.EXCEPTION_CODE_STR || r.exceptionCode,
@@ -92,12 +103,12 @@ function mapReport(r: any, softwareId: number): CrashReport {
 
 function mapReportDetail(r: ApiReportDetail): CrashReport {
   const config = loadConfig();
-  const branchPrefix = config.git.branchPrefix || 'release/';
 
   return {
     id: r.id,
     subject: r.mail_title || `Crash #${r.id}`,
     swVersion: r.sw_version || '',
+    releaseBranch: computeBranch(r.sw_version || ''),
     receivedAt: r.date_created || r.date || new Date().toISOString(),
     dumpUrl: r.file_link || '',
     exceptionCode: r.EXCEPTION_CODE_STR,

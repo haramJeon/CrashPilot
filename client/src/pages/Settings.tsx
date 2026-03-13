@@ -124,8 +124,15 @@ export default function Settings() {
         <div className="settings-section">
           <h3>Git Repository</h3>
           <div className="field">
-            <label>Local Repository Path</label>
-            <input value={config.git.repoPath} onChange={(e) => update('git', 'repoPath', e.target.value)} placeholder={platform === 'macos' ? '/Users/you/projects/my-repo' : 'C:\\Projects\\my-repo'} />
+            <label>Repository URL</label>
+            <input value={config.git.repoUrl} onChange={(e) => update('git', 'repoUrl', e.target.value)} placeholder="https://github.com/org/repo.git" />
+          </div>
+          <div className="field">
+            <label>Clone Base Directory <span className="field-hint">(each branch cloned into a subfolder here)</span></label>
+            <input value={config.git.repoBaseDir} onChange={(e) => update('git', 'repoBaseDir', e.target.value)} placeholder={platform === 'macos' ? '/Users/you/repos/crashpilot' : 'C:\\repos\\crashpilot'} />
+            <p className="field-help">
+              e.g. base: <code>C:\repos\crashpilot</code> + branch <code>release/2.1.3</code> → <code>C:\repos\crashpilot\release_2.1.3\</code>
+            </p>
           </div>
           <div className="field">
             <label>Release Branch Prefix <span className="field-hint">(sw_version to branch mapping)</span></label>

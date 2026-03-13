@@ -76,7 +76,8 @@ export interface AppConfig {
   };
   debugger: DebuggerConfig;
   git: {
-    repoPath: string;
+    repoUrl: string;        // e.g. https://github.com/org/repo.git
+    repoBaseDir: string;    // base folder; each branch cloned into a subfolder
     branchPrefix: string;   // e.g. "release/" → sw_version "2.1.3.4" → "release/2.1.3"
     defaultBranch: string;  // fallback when sw_version is empty (e.g. "master")
   };

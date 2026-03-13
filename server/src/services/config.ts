@@ -33,7 +33,8 @@ const DEFAULT_CONFIG: AppConfig = {
     },
   },
   git: {
-    repoPath: '',
+    repoUrl: 'https://github.com/medit-desktop-app/applications.git',
+    repoBaseDir: '',
     branchPrefix: 'release/',
     defaultBranch: 'master',
   },

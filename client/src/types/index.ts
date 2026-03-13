@@ -69,7 +69,8 @@ export interface AppConfig {
   };
   debugger: DebuggerConfig;
   git: {
-    repoPath: string;
+    repoUrl: string;
+    repoBaseDir: string;
     branchPrefix: string;
     defaultBranch: string;
   };

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, ExternalLink, FileCode } from 'lucide-react';
+import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import PipelineView from '../components/PipelineView';
-import type { CrashReport, PipelineStep, CrashAnalysis } from '../types';
+import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory } from '../types';
 import './CrashDetail.css';
 
 export default function CrashDetail() {
@@ -14,15 +14,23 @@ export default function CrashDetail() {
   const [crash, setCrash] = useState<CrashReport | null>(null);
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
+  const [history, setHistory] = useState<PipelineRunHistory | null>(null);
   const socketRef = useSocket();
 
   useEffect(() => {
-    if (id) {
-      apiGet<CrashReport>(`/crash/${id}`).then((data) => {
-        setCrash(data);
-        if (data.analysis) setAnalysis(data.analysis);
-      }).catch(() => {});
-    }
+    if (!id) return;
+
+    apiGet<CrashReport>(`/crash/${id}`).then((data) => {
+      setCrash(data);
+      if (data.pipelineSteps?.length) setSteps(data.pipelineSteps);
+      if (data.analysis) setAnalysis(data.analysis);
+    }).catch(() => {});
+
+    apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then((h) => {
+      setHistory(h);
+      setSteps(h.steps);
+      if (h.analysis) setAnalysis(h.analysis);
+    }).catch(() => {});
 
     const socket = socketRef.current;
     if (!socket) return;
@@ -32,19 +40,47 @@ export default function CrashDetail() {
     });
 
     socket.on('pipeline:complete', (data: { crashId: string; analysis: CrashAnalysis }) => {
-      if (data.crashId === id) setAnalysis(data.analysis);
+      if (data.crashId === id) {
+        setAnalysis(data.analysis);
+        apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then(setHistory).catch(() => {});
+      }
+    });
+
+    socket.on('pipeline:error', (data: { crashId: string }) => {
+      if (data.crashId === id) {
+        apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then(setHistory).catch(() => {});
+      }
     });
 
     return () => {
       socket.off('pipeline:steps');
       socket.off('pipeline:complete');
+      socket.off('pipeline:error');
     };
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isRunning = steps.some((s) => s.status === 'running');
+
+  const stopPipeline = async () => {
+    if (!crash) return;
+    try {
+      await apiPost(`/pipeline/cancel/${crash.id}`, {});
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
 
   const runPipeline = async () => {
     if (!crash) return;
     try {
-      await apiPost(`/pipeline/run/${crash.id}`, crash);
+      setHistory(null);
+      setSteps([]);
+      setAnalysis(null);
+      // Carry releaseTag from history when crash record doesn't have it (e.g. after server restart)
+      const payload = (!crash.releaseTag && history?.releaseTag)
+        ? { ...crash, releaseTag: history.releaseTag }
+        : crash;
+      await apiPost(`/pipeline/run/${crash.id}`, payload);
     } catch (e: any) {
       console.error(e);
     }
@@ -76,7 +112,23 @@ export default function CrashDetail() {
         </div>
         <div className="detail-actions">
           <StatusBadge status={crash.status} />
-          {crash.status === 'new' && (
+          {isRunning ? (
+            <button className="btn btn-danger" onClick={stopPipeline}>
+              <Square size={16} />
+              Stop
+            </button>
+          ) : history ? (
+            <>
+              <span className="history-badge">
+                <Info size={14} />
+                {new Date(history.runAt).toLocaleString('ko-KR')} 실행 결과
+              </span>
+              <button className="btn btn-primary" onClick={runPipeline}>
+                <Play size={16} />
+                Re-run
+              </button>
+            </>
+          ) : crash.status === 'new' && (
             <button className="btn btn-primary" onClick={runPipeline}>
               <Play size={16} />
               Run Pipeline

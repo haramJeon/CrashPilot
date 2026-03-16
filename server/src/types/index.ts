@@ -3,7 +3,7 @@ export interface CrashReport {
   id: number;
   subject: string;           // mail_title
   swVersion: string;         // sw_version (maps to git branch)
-  releaseBranch: string;     // computed branch (editable override)
+  releaseTag: string;        // git tag for this version (editable override)
   receivedAt: string;        // date_created
   dumpUrl: string;           // file_link
   exceptionCode?: string;    // EXCEPTION_CODE_STR
@@ -17,6 +17,7 @@ export interface CrashReport {
   mainStackTraces: StackEntry[];
   status: CrashStatus;
   analysis?: CrashAnalysis;
+  pipelineSteps?: PipelineStep[];
 }
 
 export interface StackEntry {
@@ -76,11 +77,22 @@ export interface AppConfig {
     repo: string;
   };
   debugger: DebuggerConfig;
+  releaseBuildBaseDir: string; // local dir where release zips are extracted (PDBs + crash dumps)
+  buildNetworkBaseDir: string; // UNC base path to release zips, e.g. \\10.100.1.20\Build_Repository\Product_Release
+  softwareBuildPaths: Record<string, string>; // softwareId → subfolder under buildNetworkBaseDir
+  crashDb: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+  };
   git: {
     repoUrl: string;        // e.g. https://github.com/org/repo.git
     repoBaseDir: string;    // base folder; each branch cloned into a subfolder
     branchPrefix: string;   // e.g. "release/" → sw_version "2.1.3.4" → "release/2.1.3"
     defaultBranch: string;  // fallback when sw_version is empty (e.g. "master")
+    softwareTagFolders: Record<string, string>; // softwareId (as string) → tag root folder
   };
 }
 
@@ -88,6 +100,17 @@ export interface PipelineStep {
   name: string;
   status: 'pending' | 'running' | 'done' | 'error';
   message?: string;
+  logs?: string[];
+}
+
+export interface PipelineRunHistory {
+  crashId: string;
+  runAt: string;
+  status: 'completed' | 'error';
+  releaseTag?: string;
+  steps: PipelineStep[];
+  analysis?: CrashAnalysis;
+  errorMessage?: string;
 }
 
 // Raw types from crashReportOrganizer API
@@ -98,6 +121,7 @@ export interface ApiSoftware {
 
 export interface ApiReport {
   id: number;
+  // snake_case (legacy / some endpoints)
   mail_title?: string;
   date?: string;
   date_created?: string;
@@ -109,6 +133,14 @@ export interface ApiReport {
   country?: string;
   serial_no?: string;
   software_id?: number;
+  // camelCase (detail endpoint)
+  swVersion?: string;
+  fileLink?: string;
+  dateCreated?: string;
+  serialNo?: string;
+  softwareId?: number;
+  subject?: string;
+  version?: string;  // list endpoint uses 'version' instead of 'sw_version'
 }
 
 export interface ApiReportDetail extends ApiReport {

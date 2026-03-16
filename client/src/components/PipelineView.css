@@ -45,6 +45,25 @@
   font-size: 14px;
 }
 
+.pipeline-step-running {
+  background: rgba(88, 166, 255, 0.04);
+  border-radius: 6px;
+  padding-right: 8px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.pipeline-step-running::after {
+  content: '';
+  display: block;
+  margin-top: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: progress-sweep 1.4s ease-in-out infinite;
+}
+
 .pipeline-step-running .step-name {
   color: var(--accent);
 }
@@ -68,6 +87,49 @@
   word-break: break-all;
 }
 
+.step-logs-wrapper {
+  margin: 4px 0 2px 0;
+}
+
+.step-logs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 0;
+  margin-bottom: 4px;
+}
+
+.step-logs-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.step-logs {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.step-log-line {
+  color: #8b949e;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.pipeline-step-error .step-log-line:last-child {
+  color: var(--error);
+}
+
 .step-connector {
   position: absolute;
   left: -27px;
@@ -80,4 +142,9 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@keyframes progress-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }

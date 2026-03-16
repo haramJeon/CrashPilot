@@ -2,7 +2,7 @@ export interface CrashReport {
   id: number;
   subject: string;
   swVersion: string;
-  releaseBranch: string;
+  releaseTag: string;
   receivedAt: string;
   dumpUrl: string;
   exceptionCode?: string;
@@ -16,6 +16,7 @@ export interface CrashReport {
   mainStackTraces: StackEntry[];
   status: CrashStatus;
   analysis?: CrashAnalysis;
+  pipelineSteps?: PipelineStep[];
 }
 
 export interface StackEntry {
@@ -69,11 +70,22 @@ export interface AppConfig {
     repo: string;
   };
   debugger: DebuggerConfig;
+  releaseBuildBaseDir: string;
+  buildNetworkBaseDir: string;
+  softwareBuildPaths: Record<string, string>;
+  crashDb: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+  };
   git: {
     repoUrl: string;
     repoBaseDir: string;
     branchPrefix: string;
     defaultBranch: string;
+    softwareTagFolders: Record<string, string>;
   };
 }
 
@@ -81,6 +93,17 @@ export interface PipelineStep {
   name: string;
   status: 'pending' | 'running' | 'done' | 'error';
   message?: string;
+  logs?: string[];
+}
+
+export interface PipelineRunHistory {
+  crashId: string;
+  runAt: string;
+  status: 'completed' | 'error';
+  releaseTag?: string;
+  steps: PipelineStep[];
+  analysis?: CrashAnalysis;
+  errorMessage?: string;
 }
 
 export interface ApiSoftware {

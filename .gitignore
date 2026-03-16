@@ -6,3 +6,4 @@ dist/
 Thumbs.db
 config.json
 dumps/
+data/

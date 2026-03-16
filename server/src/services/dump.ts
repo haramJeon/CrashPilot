@@ -3,40 +3,167 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
+import AdmZip from 'adm-zip';
 import { loadConfig } from './config';
 import { getCurrentPlatform } from './config';
 
-const DUMP_DIR = path.join(__dirname, '../../../dumps');
+/**
+ * Ensures the release build zip is extracted locally (PDB files).
+ * Network zip: {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/Windows/Build/{version}_Release.zip
+ * Extracted to: {releaseBuildBaseDir}/{version}_Release/
+ * Returns the local extract directory path.
+ */
+export async function downloadPdbFiles(
+  softwareId: number,
+  swVersion: string,
+  onLog?: (line: string) => void
+): Promise<string> {
+  const config = loadConfig();
+  const localBaseDir = config.releaseBuildBaseDir;
+  if (!localBaseDir) throw new Error('Release Build Base Directory is not configured in Settings.');
 
-export async function downloadDump(url: string, filename: string): Promise<string> {
-  if (!fs.existsSync(DUMP_DIR)) {
-    fs.mkdirSync(DUMP_DIR, { recursive: true });
+  const networkBase = config.buildNetworkBaseDir;
+  const softwarePath = config.softwareBuildPaths?.[String(softwareId)] || '';
+  if (!networkBase || !softwarePath) {
+    throw new Error(`buildNetworkBaseDir or softwareBuildPaths[${softwareId}] not configured in Settings.`);
   }
 
-  const filePath = path.join(DUMP_DIR, filename);
+  // Use last segment of softwareBuildPaths as app folder name
+  // e.g. 'Medit Add-in\\Medit Orthodontic Suite' → 'Medit Orthodontic Suite'
+  const appFolder = softwarePath.split(/[/\\]/).filter(Boolean).pop() || String(softwareId);
+  const versionReleaseName = `${swVersion}_Release`;
+  const extractDir = path.join(localBaseDir, appFolder, versionReleaseName);
 
+  const alreadyExtracted = fs.existsSync(extractDir) &&
+    fs.readdirSync(extractDir).some(f => !fs.statSync(path.join(extractDir, f)).isDirectory());
+
+  if (alreadyExtracted) {
+    onLog?.(`Already extracted: ${extractDir}`);
+  } else {
+    const majorMinorPatch = swVersion.split('.').slice(0, 3).join('.');
+    const zipNetworkPath = path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', `${versionReleaseName}.zip`);
+
+    // Step 1: copy zip from network to local
+    const localZipPath = path.join(localBaseDir, appFolder, `${versionReleaseName}.zip`);
+    fs.mkdirSync(path.join(localBaseDir, appFolder), { recursive: true });
+    onLog?.(`> Copying zip from network...`);
+    onLog?.(`  ${zipNetworkPath}`);
+    onLog?.(`  → ${localZipPath}`);
+    fs.copyFileSync(zipNetworkPath, localZipPath);
+    onLog?.(`  Copy done.`);
+
+    // Step 2: extract locally
+    onLog?.(`> Extracting...`);
+    onLog?.(`  ${localZipPath} → ${extractDir}`);
+    fs.mkdirSync(extractDir, { recursive: true });
+    extractLargeZip(localZipPath, extractDir, onLog);
+
+    // Step 3: delete local zip
+    fs.unlinkSync(localZipPath);
+    onLog?.(`  Done — PDB files available at ${extractDir}`);
+  }
+
+  return extractDir;
+}
+
+/**
+ * Downloads a crash dump zip from the given URL and extracts the .dmp file
+ * into {pdbDir}/crashes/{crashId}/.
+ * Skips if .dmp already present. Returns the full path to the .dmp file.
+ */
+export async function downloadDump(
+  crashId: string,
+  dumpUrl: string,
+  pdbDir: string,
+  onLog?: (line: string) => void
+): Promise<string> {
+  const crashDir = path.join(pdbDir, 'crashes', String(crashId));
+
+  // Skip if already downloaded
+  if (fs.existsSync(crashDir)) {
+    const existing = fs.readdirSync(crashDir).find((f) => f.endsWith('.dmp'));
+    if (existing) {
+      const dmpPath = path.join(crashDir, existing);
+      onLog?.(`Already downloaded: ${dmpPath}`);
+      return dmpPath;
+    }
+  }
+
+  fs.mkdirSync(crashDir, { recursive: true });
+
+  const zipPath = path.join(crashDir, 'dump.zip');
+  const cleanUrl = dumpUrl.replace(/\[/g, '').replace(/\]/g, '').replace(/月/g, '%e6%9c%88');
+
+  onLog?.(`> Downloading: ${cleanUrl}`);
+  onLog?.(`  → ${zipPath}`);
+
+  await downloadFile(cleanUrl, zipPath, onLog);
+
+  onLog?.(`> Extracting .dmp from zip...`);
+  const zip = new AdmZip(zipPath);
+  const dmpEntry = zip.getEntries().find((e) => e.entryName.endsWith('.dmp'));
+  if (!dmpEntry) throw new Error('No .dmp file found in downloaded zip.');
+
+  const dmpFilename = path.basename(dmpEntry.entryName);
+  zip.extractEntryTo(dmpEntry.entryName, crashDir, false, true);
+  const dmpPath = path.join(crashDir, dmpFilename);
+  onLog?.(`  → ${dmpPath}`);
+
+  fs.unlinkSync(zipPath);
+  return dmpPath;
+}
+
+/**
+ * Extract a zip file using system tools to support files > 2GB.
+ * Windows: uses tar.exe (built-in on Windows 10+), falls back to PowerShell Expand-Archive.
+ * macOS/Linux: uses unzip.
+ */
+function extractLargeZip(zipPath: string, destDir: string, onLog?: (line: string) => void): void {
+  const platform = getCurrentPlatform();
+
+  if (platform === 'macos') {
+    onLog?.(`> unzip "${zipPath}" -d "${destDir}"`);
+    execSync(`unzip -o "${zipPath}" -d "${destDir}"`, {
+      encoding: 'utf-8',
+      timeout: 600000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return;
+  }
+
+  // Windows: use PowerShell Expand-Archive (handles UNC paths and files > 2GB)
+  const ps = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
+  onLog?.(`> powershell Expand-Archive "${zipPath}" → "${destDir}"`);
+  execSync(`powershell -NoProfile -Command "${ps}"`, {
+    encoding: 'utf-8',
+    timeout: 600000,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+function downloadFile(url: string, dest: string, onLog?: (line: string) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(filePath);
+    const file = fs.createWriteStream(dest);
+    const client = url.startsWith('https') ? https : http;
 
-    protocol.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        const redirectUrl = response.headers.location;
-        if (redirectUrl) {
-          file.close();
-          fs.unlinkSync(filePath);
-          downloadDump(redirectUrl, filename).then(resolve).catch(reject);
-          return;
-        }
-      }
-
-      response.pipe(file);
-      file.on('finish', () => {
+    (client as typeof https).get(url, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         file.close();
-        resolve(filePath);
-      });
+        fs.unlinkSync(dest);
+        onLog?.(`  Redirect → ${response.headers.location}`);
+        downloadFile(response.headers.location, dest, onLog).then(resolve).catch(reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        file.close();
+        reject(new Error(`HTTP ${response.statusCode} downloading dump file`));
+        return;
+      }
+      response.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
     }).on('error', (err) => {
-      fs.unlink(filePath, () => {});
+      file.close();
+      fs.unlink(dest, () => {});
       reject(err);
     });
   });
@@ -85,7 +212,7 @@ function analyzeDumpMacos(dumpPath: string): string {
     'quit',
   ].filter(Boolean).join('\n');
 
-  const cmdFile = path.join(DUMP_DIR, `lldb_cmd_${Date.now()}.txt`);
+  const cmdFile = path.join(path.dirname(dumpPath), `lldb_cmd_${Date.now()}.txt`);
   fs.writeFileSync(cmdFile, lldbCommands, 'utf-8');
 
   try {

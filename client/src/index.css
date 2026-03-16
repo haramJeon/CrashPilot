@@ -116,6 +116,15 @@ input, select, textarea {
 .btn-success { background: rgba(34, 197, 94, 0.15); color: var(--success); }
 .btn-success:hover { background: rgba(34, 197, 94, 0.25); }
 
+.btn-running { background: rgba(251, 191, 36, 0.15); color: #f59e0b; gap: 6px; }
+.btn-running:hover { background: rgba(251, 191, 36, 0.25); }
+
+.btn-info { background: rgba(99, 102, 241, 0.15); color: var(--accent); gap: 6px; }
+.btn-info:hover { background: rgba(99, 102, 241, 0.25); }
+
+.btn-danger { background: rgba(239, 68, 68, 0.15); color: var(--error); gap: 6px; }
+.btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
+
 .branch-tag {
   background: rgba(99, 102, 241, 0.12);
   color: var(--accent);

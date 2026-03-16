@@ -200,33 +200,38 @@ function analyzeDumpWindows(
       return;
     }
 
-    // Symbol path: pdbDir first (local PDBs), then configured path, then MS public symbols
-    const symParts = [
-      pdbDir,
-      symbolPath || '',
-      'srv*C:\\Symbols*https://msdl.microsoft.com/download/symbols',
-    ].filter(Boolean);
+    // Symbol path: local PDBs first, then MS public symbol server with local cache.
+    // C:\Symbols acts as a local cache — ntdll.pdb etc. are downloaded once and reused.
+    const msSymSrv = 'srv*C:\\Symbols*https://msdl.microsoft.com/download/symbols';
+    const symParts = [pdbDir, symbolPath || '', msSymSrv].filter(Boolean);
     const symPath = symParts.join(';');
 
+    // CDB output txt path (same folder as dump, named after crashId)
+    const dmpBase = path.basename(dumpPath, '.dmp');
+    const txtPath = path.join(pdbDir, `${dmpBase}_cdb.txt`);
+
     const commands = [
-      `.sympath "${symPath}"`,
       '.reload /f',
       '!analyze -v',
       '.ecxr',
       'kb 50',
-      '~*kb',    // all threads call stacks
-      'dv',      // local variables at crash frame
-      'r',       // registers
+      'dv',
+      'r',
       'q',
     ].join('; ');
 
     onLog?.(`> Running CDB: "${cdbPath}"`);
-    onLog?.(`  -z "${dumpPath}"`);
-    onLog?.(`  -y "${symPath}"`);
+    onLog?.(`  dump: "${dumpPath}"`);
+    onLog?.(`  symbols: "${symPath}"`);
 
-    const proc = spawn(cdbPath, ['-z', dumpPath, '-c', commands], {
-      windowsHide: true,
-    });
+    // Use -y flag for symbol path (cleaner than .sympath command)
+    const proc = spawn(cdbPath, [
+      '-z', dumpPath,
+      '-y', symPath,
+      '-lines',   // include source line numbers if available
+      '-nosqm',   // disable SQM (no Microsoft telemetry calls)
+      '-c', commands,
+    ], { windowsHide: true });
 
     const outputLines: string[] = [];
 
@@ -245,14 +250,24 @@ function analyzeDumpWindows(
     proc.stdout.on('data', handleChunk);
     proc.stderr.on('data', handleChunk);
 
-    proc.on('close', () => resolve(outputLines.join('\n')));
+    proc.on('close', () => {
+      const output = outputLines.join('\n');
+      // Save full CDB output to txt file
+      try {
+        fs.writeFileSync(txtPath, output, 'utf-8');
+        onLog?.(`  Saved CDB output → ${txtPath}`);
+      } catch {
+        // non-fatal
+      }
+      resolve(output);
+    });
     proc.on('error', reject);
 
-    // Safety timeout: 3 minutes
+    // Safety timeout: 15 minutes (first run may download ntdll.pdb ~20MB from MS symbol server)
     const timer = setTimeout(() => {
       proc.kill();
-      reject(new Error('CDB analysis timed out after 3 minutes'));
-    }, 180000);
+      reject(new Error('CDB analysis timed out after 15 minutes'));
+    }, 900000);
     proc.on('close', () => clearTimeout(timer));
   });
 }

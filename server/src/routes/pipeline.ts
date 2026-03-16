@@ -73,9 +73,9 @@ export function pipelineRouter(io: SocketIOServer): Router {
       { name: 'Load Stack Trace', status: 'pending' },   // 0
       { name: 'Download PDB Files', status: 'pending' }, // 1
       { name: 'Download Dump', status: 'pending' },      // 2
-      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3
-      { name: 'Clone / Pull', status: 'pending' },       // 4
-      { name: 'Init Submodule', status: 'pending' },     // 5
+      { name: 'Clone / Pull', status: 'pending' },       // 3
+      { name: 'Init Submodule', status: 'pending' },     // 4
+      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 5
       { name: 'AI Analysis & Fix', status: 'pending' },  // 6
       { name: 'Apply Fix & Commit', status: 'pending' }, // 7
       { name: 'Create PR', status: 'pending' },          // 8
@@ -131,15 +131,55 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 4: Analyze dump with CDB
-      steps[3].status = 'running';
+      // Step 4: Clone or pull (skip if already cloned)
+      const repoDir = getRepoDirForBranch(releaseBranch);
+      const alreadyCloned = fs.existsSync(path.join(repoDir, '.git'));
+
+      if (alreadyCloned) {
+        steps[3].status = 'done';
+        steps[3].message = `Already cloned: ${repoDir}`;
+        log(3, `Skipped — repo already exists at ${repoDir}`);
+        emitSteps(crashId, steps);
+      } else {
+        steps[3].status = 'running';
+        emitSteps(crashId, steps);
+        await checkoutBranch(releaseBranch, (line) => log(3, line));
+        steps[3].status = 'done';
+        steps[3].message = `${releaseBranch} → ${repoDir}`;
+        emitSteps(crashId, steps);
+      }
+      throwIfCancelled();
+
+      // Step 5: Init submodules (skip if no .gitmodules or already initialized)
+      const gitmodulesPath = path.join(repoDir, '.gitmodules');
+      const modulesDir = path.join(repoDir, '.git', 'modules');
+      const hasSubmodules = fs.existsSync(gitmodulesPath);
+      const alreadyInit = hasSubmodules && fs.existsSync(modulesDir) && fs.readdirSync(modulesDir).length > 0;
+
+      if (!hasSubmodules || alreadyInit) {
+        steps[4].status = 'done';
+        steps[4].message = hasSubmodules ? 'Already initialized' : 'No submodules';
+        log(4, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
+        emitSteps(crashId, steps);
+      } else {
+        steps[4].status = 'running';
+        emitSteps(crashId, steps);
+        await initSubmodules(repoDir, (line) => log(4, line));
+        steps[4].status = 'done';
+        steps[4].message = 'git submodule update --init done';
+        emitSteps(crashId, steps);
+      }
+      throwIfCancelled();
+
+      // Step 6: Analyze dump with CDB
+      steps[5].status = 'running';
       emitSteps(crashId, steps);
       let cdbCallStack = callStack;        // fallback: use API stack trace
       let cdbExceptionType = exceptionType;
       let cdbFaultingModule = detail.stackTraces[0]?.dllName || 'Unknown';
       let cdbOutput = '';
       try {
-        cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(3, line));
+        cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(5, line));
         const parsed = extractCallStack(cdbOutput);
         if (parsed.callStack) {
           cdbCallStack = parsed.callStack;
@@ -148,56 +188,15 @@ export function pipelineRouter(io: SocketIOServer): Router {
             cdbExceptionType = parsed.exceptionType;
           }
         }
-        steps[3].status = 'done';
-        steps[3].message = `CDB analysis complete — ${cdbOutput.split('\n').length} lines`;
+        steps[5].status = 'done';
+        steps[5].message = `CDB analysis complete — ${cdbOutput.split('\n').length} lines`;
       } catch (cdbErr: any) {
-        // CDB 실패 시 경고만 표시하고 계속 진행 (API 스택 트레이스로 fallback)
-        steps[3].status = 'done';
-        steps[3].message = `CDB skipped: ${cdbErr.message.split('\n')[0]}`;
-        log(3, `Warning: CDB failed — ${cdbErr.message}`);
-        log(3, 'Falling back to API stack trace for AI analysis');
+        steps[5].status = 'done';
+        steps[5].message = `CDB skipped: ${cdbErr.message.split('\n')[0]}`;
+        log(5, `Warning: CDB failed — ${cdbErr.message}`);
+        log(5, 'Falling back to API stack trace for AI analysis');
       }
       emitSteps(crashId, steps);
-      throwIfCancelled();
-
-      // Step 5: Clone or pull (skip if already cloned)
-      const repoDir = getRepoDirForBranch(releaseBranch);
-      const alreadyCloned = fs.existsSync(path.join(repoDir, '.git'));
-
-      if (alreadyCloned) {
-        steps[4].status = 'done';
-        steps[4].message = `Already cloned: ${repoDir}`;
-        log(4, `Skipped — repo already exists at ${repoDir}`);
-        emitSteps(crashId, steps);
-      } else {
-        steps[4].status = 'running';
-        emitSteps(crashId, steps);
-        await checkoutBranch(releaseBranch, (line) => log(4, line));
-        steps[4].status = 'done';
-        steps[4].message = `${releaseBranch} → ${repoDir}`;
-        emitSteps(crashId, steps);
-      }
-      throwIfCancelled();
-
-      // Step 6: Init submodules (skip if no .gitmodules or already initialized)
-      const gitmodulesPath = path.join(repoDir, '.gitmodules');
-      const modulesDir = path.join(repoDir, '.git', 'modules');
-      const hasSubmodules = fs.existsSync(gitmodulesPath);
-      const alreadyInit = hasSubmodules && fs.existsSync(modulesDir) && fs.readdirSync(modulesDir).length > 0;
-
-      if (!hasSubmodules || alreadyInit) {
-        steps[5].status = 'done';
-        steps[5].message = hasSubmodules ? 'Already initialized' : 'No submodules';
-        log(5, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
-        emitSteps(crashId, steps);
-      } else {
-        steps[5].status = 'running';
-        emitSteps(crashId, steps);
-        await initSubmodules(repoDir, (line) => log(5, line));
-        steps[5].status = 'done';
-        steps[5].message = 'git submodule update --init done';
-        emitSteps(crashId, steps);
-      }
       throwIfCancelled();
 
       // Step 7: Claude AI analysis (uses CDB output if available)

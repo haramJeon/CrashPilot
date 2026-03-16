@@ -179,3 +179,123 @@
   height: 200px;
   color: var(--text-muted);
 }
+
+/* ── Ref selector in detail-meta ── */
+.ref-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.ref-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.ref-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ref-pick-icon {
+  margin-left: auto;
+  color: var(--success);
+  opacity: 0;
+}
+
+.branch-match-item:hover .ref-pick-icon {
+  opacity: 1;
+}
+
+.branch-edit-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.branch-edit-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.branch-btn {
+  background: none;
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.branch-btn:hover { background: var(--bg-hover); }
+.branch-btn:disabled { opacity: 0.5; cursor: default; }
+
+.branch-btn-cancel { color: var(--error); }
+.branch-btn-cancel:hover { background: rgba(239, 68, 68, 0.1); }
+
+.branch-matches {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-width: 280px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+
+.branch-match-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.branch-match-item:last-child { border-bottom: none; }
+.branch-match-item:hover { background: var(--bg-hover); }
+
+.ref-type {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ref-type-branch { background: rgba(99,102,241,0.15); color: var(--accent); }
+.ref-type-tag    { background: rgba(245,158,11,0.15);  color: var(--warning); }
+
+.ref-name {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.branch-search-error {
+  font-size: 11px;
+  color: var(--error);
+  white-space: nowrap;
+}

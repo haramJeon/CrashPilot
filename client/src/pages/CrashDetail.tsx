@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot } from 'lucide-react';
+import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot, Pencil, Search, Loader, Check, X } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
-import { apiGet, apiPost } from '../hooks/useApi';
+import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import PipelineView from '../components/PipelineView';
 import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory } from '../types';
 import './CrashDetail.css';
+
+interface RemoteRef { name: string; short: string; type: 'branch' | 'tag'; }
 
 export default function CrashDetail() {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +17,10 @@ export default function CrashDetail() {
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
   const [history, setHistory] = useState<PipelineRunHistory | null>(null);
+  const [refMatches, setRefMatches] = useState<RemoteRef[]>([]);
+  const [refSearching, setRefSearching] = useState(false);
+  const [refEditing, setRefEditing] = useState(false);
+  const [refError, setRefError] = useState('');
   const socketRef = useSocket();
 
   useEffect(() => {
@@ -59,16 +65,38 @@ export default function CrashDetail() {
     };
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const searchRefs = async (swVersion: string) => {
+    setRefSearching(true);
+    setRefError('');
+    setRefMatches([]);
+    try {
+      const refs = await apiGet<RemoteRef[]>(`/git/refs/match?version=${encodeURIComponent(swVersion)}`);
+      const sorted = [...refs.filter((r) => r.type === 'tag'), ...refs.filter((r) => r.type === 'branch')];
+      setRefMatches(sorted);
+      if (sorted.length === 0) setRefError(`No refs found for "${swVersion}"`);
+      else if (sorted.length === 1) pickRef(sorted[0]);  // auto-select if only one
+    } catch (e: any) {
+      setRefError(e.message || 'Search failed');
+    } finally {
+      setRefSearching(false);
+    }
+  };
+
+  const pickRef = async (ref: RemoteRef) => {
+    if (!crash) return;
+    const updated = await apiPatch<CrashReport>(`/crash/${crash.id}`, { releaseTag: ref.short }).catch(() => null);
+    if (updated) setCrash(updated);
+    else setCrash((c) => c ? { ...c, releaseTag: ref.short } : c);
+    setRefEditing(false);
+    setRefMatches([]);
+  };
+
   const isRunning = steps.some((s) => s.status === 'running');
   const isAwaitingAI = steps.some((s) => s.name === 'AI Analysis & Fix' && s.status === 'awaiting');
 
   const stopPipeline = async () => {
     if (!crash) return;
-    try {
-      await apiPost(`/pipeline/cancel/${crash.id}`, {});
-    } catch (e: any) {
-      console.error(e);
-    }
+    try { await apiPost(`/pipeline/cancel/${crash.id}`, {}); } catch (e: any) { console.error(e); }
   };
 
   const runPipeline = async () => {
@@ -77,23 +105,16 @@ export default function CrashDetail() {
       setHistory(null);
       setSteps([]);
       setAnalysis(null);
-      // Carry releaseTag from history when crash record doesn't have it (e.g. after server restart)
       const payload = (!crash.releaseTag && history?.releaseTag)
         ? { ...crash, releaseTag: history.releaseTag }
         : crash;
       await apiPost(`/pipeline/run/${crash.id}`, payload);
-    } catch (e: any) {
-      console.error(e);
-    }
+    } catch (e: any) { console.error(e); }
   };
 
   const runAI = async () => {
     if (!crash) return;
-    try {
-      await apiPost(`/pipeline/run-ai/${crash.id}`, {});
-    } catch (e: any) {
-      console.error(e);
-    }
+    try { await apiPost(`/pipeline/run-ai/${crash.id}`, {}); } catch (e: any) { console.error(e); }
   };
 
   if (!crash) {
@@ -116,6 +137,41 @@ export default function CrashDetail() {
           <h1>{crash.subject}</h1>
           <div className="detail-meta">
             <span>Version: <code className="branch-tag">{crash.swVersion}</code></span>
+
+            {/* Release tag selector */}
+            <span className="ref-selector-wrap">
+              Branch:&nbsp;
+              {refEditing ? (
+                <span className="ref-selector">
+                  <button className="branch-btn" onClick={() => searchRefs(crash.swVersion)} disabled={refSearching} title="Search matching refs">
+                    {refSearching ? <Loader size={12} className="spinning" /> : <Search size={12} />}
+                  </button>
+                  <button className="branch-btn branch-btn-cancel" onClick={() => { setRefEditing(false); setRefMatches([]); setRefError(''); }} title="Cancel">
+                    <X size={12} />
+                  </button>
+                  {refMatches.length > 0 && (
+                    <div className="branch-matches">
+                      {refMatches.map((ref) => (
+                        <button key={ref.name} className="branch-match-item" onClick={() => pickRef(ref)}>
+                          <span className={`ref-type ref-type-${ref.type}`}>{ref.type}</span>
+                          <span className="ref-name">{ref.short}</span>
+                          <Check size={12} className="ref-pick-icon" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {refError && <span className="branch-search-error">{refError}</span>}
+                </span>
+              ) : (
+                <span className="ref-display">
+                  <code className="branch-tag">{crash.releaseTag || '—'}</code>
+                  <button className="branch-edit-btn" onClick={() => { setRefEditing(true); searchRefs(crash.swVersion); }} title="Change branch/tag">
+                    <Pencil size={12} />
+                  </button>
+                </span>
+              )}
+            </span>
+
             <span>{crash.region || ''}</span>
             <span>{new Date(crash.receivedAt).toLocaleString('ko-KR')}</span>
           </div>
@@ -143,7 +199,7 @@ export default function CrashDetail() {
                 Re-run
               </button>
             </>
-          ) : crash.status === 'new' && (
+          ) : (
             <button className="btn btn-primary" onClick={runPipeline}>
               <Play size={16} />
               Run Pipeline
@@ -153,7 +209,6 @@ export default function CrashDetail() {
       </div>
 
       <div className="detail-grid">
-        {/* Pipeline Progress */}
         {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
@@ -161,7 +216,6 @@ export default function CrashDetail() {
           </div>
         )}
 
-        {/* Dump URL */}
         <div className="detail-card">
           <h3>Dump File</h3>
           <a href={crash.dumpUrl} target="_blank" rel="noreferrer" className="dump-link">
@@ -170,7 +224,6 @@ export default function CrashDetail() {
           </a>
         </div>
 
-        {/* Analysis Result */}
         {analysis && (
           <>
             <div className="detail-card">

@@ -46,19 +46,11 @@ export async function analyzeAndFix(params: {
 }> {
   const { onLog } = params;
 
-  // Log all inputs being sent to Claude
-  onLog?.(`[AI] Exception Type   : ${params.exceptionType}`);
-  onLog?.(`[AI] Faulting Module  : ${params.faultingModule}`);
-  onLog?.(`[AI] CDB output file  : ${params.cdbTxtPath || '(none)'}`);
-  onLog?.(`[AI] Call stack lines : ${params.callStack.split('\n').filter(Boolean).length}`);
-  onLog?.(`[AI] Source files     : ${params.sourceFiles.length} file(s) — ${params.sourceFiles.map(f => f.path).join(', ') || '(none)'}`);
-  onLog?.(`[AI] Sending prompt to claude CLI...`);
-
   const sourceContext = params.sourceFiles
     .map((f) => `--- ${f.path} ---\n${f.content}`)
     .join('\n\n');
 
-  const prompt = `You are a crash dump analysis expert. Analyze this crash and provide a fix.
+  const prompt = `You are a C++ crash dump analysis expert. Your primary task is to trace the call stack to identify the exact crash location in the source code and produce a concrete fix.
 
 ## Exception Info
 - Type: ${params.exceptionType}
@@ -66,21 +58,29 @@ export async function analyzeAndFix(params: {
 - Faulting Module: ${params.faultingModule}
 ${params.cdbTxtPath ? `- CDB Output File: ${params.cdbTxtPath}` : ''}
 
-## Call Stack
+## Call Stack (MOST IMPORTANT — start your analysis here)
+Trace from the top frame downward to find the first frame that belongs to our source code (not OS/runtime frames).
+Identify the exact function, file, and line number where the crash originated.
+
 ${params.callStack}
 
 ## Related Source Files
-${sourceContext || '(no source files found)'}
+Cross-reference the call stack frames against these source files.
+Find the function(s) appearing in the call stack and examine the code path that led to the crash.
 
-## Instructions
-1. Analyze the root cause of this crash
-2. Provide a clear explanation
-3. Generate the fixed source code
+${sourceContext || '(no source files provided — infer from call stack alone)'}
+
+## Analysis Instructions
+1. Find the topmost source-code frame in the call stack (skip ntdll/kernel/runtime frames)
+2. Locate that function in the source files above
+3. Determine WHY it crashed at that point (null pointer, out-of-bounds, use-after-free, unhandled exception, etc.)
+4. Produce the minimal code fix for the identified file(s)
+5. Only modify files that directly contain the crashing code path
 
 Respond in this exact JSON format:
 {
-  "rootCause": "Clear explanation of why the crash happened",
-  "suggestedFix": "Description of the fix applied",
+  "rootCause": "Specific function and reason — e.g. 'ncGeometry::Foo() dereferenced null pointer m_pBar at line 42'",
+  "suggestedFix": "Concrete description of what was changed and why",
   "fixedFiles": [
     {
       "path": "relative/path/to/file.cpp",
@@ -89,7 +89,19 @@ Respond in this exact JSON format:
   ]
 }
 
-IMPORTANT: Return ONLY valid JSON, no markdown code blocks.`;
+IMPORTANT: Return ONLY valid JSON, no markdown code blocks. If you cannot identify a fix with confidence, return an empty fixedFiles array.`;
+
+  // Log summary + full prompt
+  onLog?.(`[AI] Exception Type   : ${params.exceptionType}`);
+  onLog?.(`[AI] Faulting Module  : ${params.faultingModule}`);
+  onLog?.(`[AI] CDB output file  : ${params.cdbTxtPath || '(none)'}`);
+  onLog?.(`[AI] Call stack lines : ${params.callStack.split('\n').filter(Boolean).length}`);
+  onLog?.(`[AI] Source files     : ${params.sourceFiles.length} file(s) — ${params.sourceFiles.map(f => f.path).join(', ') || '(none)'}`);
+  onLog?.(`[AI] Prompt length    : ${prompt.length} chars`);
+  onLog?.(`[AI] ── Prompt ──────────────────────────────────`);
+  for (const line of prompt.split('\n')) onLog?.(line);
+  onLog?.(`[AI] ────────────────────────────────────────────`);
+  onLog?.(`[AI] Sending to claude CLI...`);
 
   const text = await runClaude(prompt);
   onLog?.(`[AI] Response received — ${text.length} chars`);

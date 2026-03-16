@@ -91,7 +91,7 @@ export interface AppConfig {
 
 export interface PipelineStep {
   name: string;
-  status: 'pending' | 'running' | 'done' | 'error';
+  status: 'pending' | 'running' | 'done' | 'error' | 'awaiting';
   message?: string;
   logs?: string[];
 }

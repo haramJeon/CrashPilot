@@ -34,6 +34,22 @@ function listHistoryIds(): number[] {
 // Track cancellation flags per crashId
 const cancelFlags = new Map<string, boolean>();
 
+// Store intermediate state for AI step (awaiting manual trigger)
+interface AIWaitState {
+  steps: PipelineStep[];
+  crash: CrashReport;
+  subject: string;
+  swVersion: string;
+  cdbCallStack: string;
+  cdbExceptionType: string;
+  cdbFaultingModule: string;
+  cdbOutput: string;
+  repoDir: string;
+  releaseBranch: string;
+  dllNames: string[];
+}
+const aiWaitStates = new Map<string, AIWaitState>();
+
 export function pipelineRouter(io: SocketIOServer): Router {
   const router = Router();
 
@@ -59,6 +75,110 @@ export function pipelineRouter(io: SocketIOServer): Router {
       res.json({ message: 'Cancel requested' });
     } else {
       res.status(404).json({ error: 'No running pipeline for this crash' });
+    }
+  });
+
+  router.post('/run-ai/:crashId', async (req, res) => {
+    const crashId = req.params.crashId;
+    const state = aiWaitStates.get(crashId);
+    if (!state) return res.status(404).json({ error: 'No pending AI state. Please re-run the full pipeline.' });
+
+    aiWaitStates.delete(crashId);
+    res.json({ message: 'AI analysis started', crashId });
+
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, repoDir, releaseBranch, dllNames } = state;
+
+    cancelFlags.set(crashId, false);
+    const isCancelled = () => cancelFlags.get(crashId) === true;
+    const throwIfCancelled = () => { if (isCancelled()) throw new Error('__CANCELLED__'); };
+
+    const log = (stepIdx: number, line: string) => {
+      if (!steps[stepIdx].logs) steps[stepIdx].logs = [];
+      steps[stepIdx].logs!.push(line);
+      emitSteps(crashId, steps);
+    };
+
+    try {
+      // Step 7: Claude AI analysis
+      steps[6].status = 'running';
+      steps[6].message = undefined;
+      emitSteps(crashId, steps);
+
+      const sourceFiles = await getSourceFiles(repoDir, dllNames);
+
+      const aiResult = await analyzeAndFix({
+        callStack: cdbCallStack,
+        exceptionType: cdbExceptionType,
+        exceptionMessage: cdbOutput
+          ? `[CDB Analysis]\n${cdbOutput.slice(0, 8000)}`
+          : `Exception: ${cdbExceptionType}\nVersion: ${swVersion}`,
+        faultingModule: cdbFaultingModule,
+        sourceFiles,
+      });
+
+      steps[6].status = 'done';
+      steps[6].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
+      emitSteps(crashId, steps);
+      throwIfCancelled();
+
+      // Step 8: Apply fix & commit
+      steps[7].status = 'running';
+      emitSteps(crashId, steps);
+
+      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
+      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(7, line));
+      await commitAndPush(
+        repoDir,
+        aiResult.fixedFiles,
+        `[CrashPilot] Fix ${cdbExceptionType} in ${cdbFaultingModule}\n\nReport #${crash.id} - v${swVersion}\n\n${aiResult.suggestedFix}`,
+        (line) => log(7, line)
+      );
+
+      steps[7].status = 'done';
+      steps[7].message = `Pushed to ${fixBranch}`;
+      emitSteps(crashId, steps);
+
+      // Step 9: Create PR
+      steps[8].status = 'running';
+      emitSteps(crashId, steps);
+
+      const analysis: CrashAnalysis = {
+        callStack: cdbCallStack,
+        exceptionType: cdbExceptionType,
+        rootCause: aiResult.rootCause,
+        suggestedFix: aiResult.suggestedFix,
+        fixedFiles: aiResult.fixedFiles,
+      };
+
+      const prUrl = await createPullRequest({
+        branch: fixBranch,
+        baseBranch: releaseBranch,
+        crashSubject: subject,
+        analysis,
+      });
+
+      analysis.prUrl = prUrl;
+      steps[8].status = 'done';
+      steps[8].message = prUrl;
+      emitSteps(crashId, steps);
+
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis });
+      io.emit('pipeline:complete', { crashId, analysis });
+    } catch (error: any) {
+      const runningIdx = steps.findIndex((s) => s.status === 'running');
+      if (error.message === '__CANCELLED__') {
+        if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = 'Cancelled by user'; }
+        emitSteps(crashId, steps);
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user' });
+        io.emit('pipeline:cancelled', { crashId });
+      } else {
+        if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = error.message; }
+        emitSteps(crashId, steps);
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message });
+        io.emit('pipeline:error', { crashId, error: error.message });
+      }
+    } finally {
+      cancelFlags.delete(crashId);
     }
   });
 
@@ -199,75 +319,32 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 7: Claude AI analysis (uses CDB output if available)
-      steps[6].status = 'running';
-      emitSteps(crashId, steps);
-
+      // Step 7: Pause — wait for manual AI trigger
       const dllNames = detail.stackTraces
         .map((s) => s.dllName)
         .filter(Boolean)
         .filter((name) => !name.startsWith('ntdll') && !name.startsWith('kernel'));
       const uniqueDlls = [...new Set(dllNames)];
-      const sourceFiles = await getSourceFiles(repoDir, uniqueDlls);
 
-      const aiResult = await analyzeAndFix({
-        callStack: cdbCallStack,
-        exceptionType: cdbExceptionType,
-        exceptionMessage: cdbOutput
-          ? `[CDB Analysis]\n${cdbOutput.slice(0, 8000)}`
-          : `Exception: ${cdbExceptionType}\nVersion: ${detail.swVersion}\nRegion: ${detail.region || 'N/A'}`,
-        faultingModule: cdbFaultingModule,
-        sourceFiles,
-      });
-
-      steps[6].status = 'done';
-      steps[6].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
-      emitSteps(crashId, steps);
-      throwIfCancelled();
-
-      // Step 8: Apply fix & commit
-      steps[7].status = 'running';
+      steps[6].status = 'awaiting';
+      steps[6].message = 'Click "Run by AI" to start AI analysis';
       emitSteps(crashId, steps);
 
-      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
-      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(7, line));
-      await commitAndPush(
+      aiWaitStates.set(crashId, {
+        steps,
+        crash,
+        subject: detail.subject,
+        swVersion: detail.swVersion,
+        cdbCallStack,
+        cdbExceptionType,
+        cdbFaultingModule,
+        cdbOutput,
         repoDir,
-        aiResult.fixedFiles,
-        `[CrashPilot] Fix ${cdbExceptionType} in ${cdbFaultingModule}\n\nReport #${crash.id} - v${detail.swVersion}\n\n${aiResult.suggestedFix}`,
-        (line) => log(7, line)
-      );
-
-      steps[7].status = 'done';
-      steps[7].message = `Pushed to ${fixBranch}`;
-      emitSteps(crashId, steps);
-
-      // Step 9: Create PR
-      steps[8].status = 'running';
-      emitSteps(crashId, steps);
-
-      const analysis: CrashAnalysis = {
-        callStack: cdbCallStack,
-        exceptionType: cdbExceptionType,
-        rootCause: aiResult.rootCause,
-        suggestedFix: aiResult.suggestedFix,
-        fixedFiles: aiResult.fixedFiles,
-      };
-
-      const prUrl = await createPullRequest({
-        branch: fixBranch,
-        baseBranch: releaseBranch,
-        crashSubject: detail.subject,
-        analysis,
+        releaseBranch,
+        dllNames: uniqueDlls,
       });
 
-      analysis.prUrl = prUrl;
-      steps[8].status = 'done';
-      steps[8].message = prUrl;
-      emitSteps(crashId, steps);
-
-      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis });
-      io.emit('pipeline:complete', { crashId, analysis });
+      io.emit('pipeline:awaiting_ai', { crashId });
     } catch (error: any) {
       const runningIdx = steps.findIndex((s) => s.status === 'running');
       if (error.message === '__CANCELLED__') {

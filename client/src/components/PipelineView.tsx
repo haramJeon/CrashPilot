@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PipelineStep } from '../types';
-import { CheckCircle, Circle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle, Circle, Loader, XCircle, ChevronDown, ChevronRight, Bot } from 'lucide-react';
 import './PipelineView.css';
 
 interface Props {
   steps: PipelineStep[];
+  onRunAI?: () => void;
 }
 
 const StepIcon = ({ status }: { status: PipelineStep['status'] }) => {
@@ -15,6 +16,8 @@ const StepIcon = ({ status }: { status: PipelineStep['status'] }) => {
       return <Loader size={20} className="step-icon step-running" />;
     case 'error':
       return <XCircle size={20} className="step-icon step-error" />;
+    case 'awaiting':
+      return <Bot size={20} className="step-icon step-awaiting" />;
     default:
       return <Circle size={20} className="step-icon step-pending" />;
   }
@@ -57,7 +60,7 @@ function StepLogs({ step }: { step: PipelineStep }) {
   );
 }
 
-export default function PipelineView({ steps }: Props) {
+export default function PipelineView({ steps, onRunAI }: Props) {
   return (
     <div className="pipeline">
       {steps.map((step, idx) => (
@@ -65,6 +68,12 @@ export default function PipelineView({ steps }: Props) {
           <div className="step-header">
             <StepIcon status={step.status} />
             <span className="step-name">{step.name}</span>
+            {step.status === 'awaiting' && onRunAI && (
+              <button className="btn-run-ai" onClick={onRunAI}>
+                <Bot size={13} />
+                Run by AI
+              </button>
+            )}
           </div>
           {step.message && <div className="step-message">{step.message}</div>}
           <StepLogs step={step} />

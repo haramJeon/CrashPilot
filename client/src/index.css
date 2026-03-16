@@ -125,6 +125,9 @@ input, select, textarea {
 .btn-danger { background: rgba(239, 68, 68, 0.15); color: var(--error); gap: 6px; }
 .btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
 
+.btn-ai { background: #6e40c9; color: white; gap: 6px; }
+.btn-ai:hover { background: #8957e5; }
+
 .branch-tag {
   background: rgba(99, 102, 241, 0.12);
   color: var(--accent);

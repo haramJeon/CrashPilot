@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info } from 'lucide-react';
+import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
@@ -60,6 +60,7 @@ export default function CrashDetail() {
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRunning = steps.some((s) => s.status === 'running');
+  const isAwaitingAI = steps.some((s) => s.name === 'AI Analysis & Fix' && s.status === 'awaiting');
 
   const stopPipeline = async () => {
     if (!crash) return;
@@ -81,6 +82,15 @@ export default function CrashDetail() {
         ? { ...crash, releaseTag: history.releaseTag }
         : crash;
       await apiPost(`/pipeline/run/${crash.id}`, payload);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  const runAI = async () => {
+    if (!crash) return;
+    try {
+      await apiPost(`/pipeline/run-ai/${crash.id}`, {});
     } catch (e: any) {
       console.error(e);
     }
@@ -117,6 +127,11 @@ export default function CrashDetail() {
               <Square size={16} />
               Stop
             </button>
+          ) : isAwaitingAI ? (
+            <button className="btn btn-ai" onClick={runAI}>
+              <Bot size={16} />
+              Run by AI
+            </button>
           ) : history ? (
             <>
               <span className="history-badge">
@@ -142,7 +157,7 @@ export default function CrashDetail() {
         {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
-            <PipelineView steps={steps} />
+            <PipelineView steps={steps} onRunAI={isAwaitingAI ? runAI : undefined} />
           </div>
         )}
 

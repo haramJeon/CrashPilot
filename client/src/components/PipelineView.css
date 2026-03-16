@@ -40,6 +40,10 @@
   color: var(--text-muted);
 }
 
+.step-icon.step-awaiting {
+  color: #a371f7;
+}
+
 .step-name {
   font-weight: 600;
   font-size: 14px;
@@ -78,6 +82,30 @@
 
 .pipeline-step-pending .step-name {
   color: var(--text-muted);
+}
+
+.pipeline-step-awaiting .step-name {
+  color: #a371f7;
+}
+
+.btn-run-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #6e40c9;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-run-ai:hover {
+  background: #8957e5;
 }
 
 .step-message {

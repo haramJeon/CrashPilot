@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Save, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiGet, apiPost } from '../hooks/useApi';
-import type { AppConfig, Platform } from '../types';
+import type { AppConfig, ApiSoftware, Platform } from '../types';
 import './Settings.css';
 
 export default function Settings() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [platform, setPlatform] = useState<Platform>('windows');
+  const [softwares, setSoftwares] = useState<ApiSoftware[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [validation, setValidation] = useState<{ valid: boolean; issues: string[] } | null>(null);
@@ -22,11 +23,12 @@ export default function Settings() {
         setConfig(data);
         setPlatform(plat.platform);
         setValidation(val);
-      } catch (e: any) {
-        setMessage({ type: 'error', text: e.message });
+      } catch (e: unknown) {
+        setMessage({ type: 'error', text: e instanceof Error ? e.message : String(e) });
       }
     };
     init();
+    apiGet<ApiSoftware[]>('/config/softwares').then(setSoftwares).catch(() => {});
   }, []);
 
   const saveSettings = async () => {
@@ -38,8 +40,8 @@ export default function Settings() {
       setMessage({ type: 'success', text: 'Settings saved successfully' });
       const val = await apiGet<{ valid: boolean; issues: string[] }>('/config/validate');
       setValidation(val);
-    } catch (e: any) {
-      setMessage({ type: 'error', text: e.message });
+    } catch (e: unknown) {
+      setMessage({ type: 'error', text: e instanceof Error ? e.message : String(e) });
     } finally {
       setSaving(false);
     }
@@ -80,6 +82,70 @@ export default function Settings() {
       )}
 
       <div className="settings-grid">
+        {/* Release Build */}
+        <div className="settings-section">
+          <h3>Release Build</h3>
+          <div className="field">
+            <label>Build Network Base Directory</label>
+            <input
+              value={config.buildNetworkBaseDir}
+              onChange={(e) => setConfig({ ...config, buildNetworkBaseDir: e.target.value })}
+              placeholder={platform === 'macos' ? '//10.100.1.20/Build_Repository/Product_Release' : '\\\\10.100.1.20\\Build_Repository\\Product_Release'}
+            />
+            <p className="field-help">
+              UNC path to the product release repo.
+              Zip path: <code>{'{base}\\{softwarePath}\\{major.minor.patch}\\Windows\\Build\\{version}_Release.zip'}</code>
+            </p>
+          </div>
+          <div className="field">
+            <label>Local Extract Directory</label>
+            <input
+              value={config.releaseBuildBaseDir}
+              onChange={(e) => setConfig({ ...config, releaseBuildBaseDir: e.target.value })}
+              placeholder={platform === 'macos' ? '/Users/you/release-builds' : 'D:\\ReleaseCaches'}
+            />
+            <p className="field-help">
+              Zips are extracted here as <code>{'{dir}\\{version}_Release\\'}</code>. Crash dumps saved under <code>crashes\\{'{crashId}\\'}</code>
+            </p>
+          </div>
+          {softwares.length > 0 && (
+            <div className="field">
+              <label>Software Build Paths <span className="field-hint">(subfolder under Build Network Base)</span></label>
+              {softwares.map((sw) => (
+                <div className="tag-folder-row" key={sw.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ minWidth: 140, fontSize: 13, color: 'var(--text-secondary)' }}>{sw.name} <span className="field-hint">ID:{sw.id}</span></span>
+                  <input
+                    style={{ flex: 1 }}
+                    value={config.softwareBuildPaths?.[String(sw.id)] ?? ''}
+                    onChange={(e) => setConfig({ ...config, softwareBuildPaths: { ...(config.softwareBuildPaths ?? {}), [String(sw.id)]: e.target.value } })}
+                    placeholder="Medit Add-in\\Medit Orthodontic Suite"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="field">
+            <label>Crash DB Host</label>
+            <input value={config.crashDb.host} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, host: e.target.value } })} placeholder="10.100.1.46" />
+          </div>
+          <div className="field">
+            <label>Crash DB Port</label>
+            <input value={String(config.crashDb.port)} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, port: Number(e.target.value) } })} placeholder="3306" />
+          </div>
+          <div className="field">
+            <label>Crash DB User</label>
+            <input value={config.crashDb.user} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, user: e.target.value } })} placeholder="root" />
+          </div>
+          <div className="field">
+            <label>Crash DB Password</label>
+            <input type="password" value={config.crashDb.password} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, password: e.target.value } })} placeholder="password" />
+          </div>
+          <div className="field">
+            <label>Crash DB Name</label>
+            <input value={config.crashDb.database} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, database: e.target.value } })} placeholder="crash_report" />
+          </div>
+        </div>
+
         {/* Crash Report Server */}
         <div className="settings-section">
           <h3>Crash Report Server</h3>
@@ -143,6 +209,37 @@ export default function Settings() {
             <label>Default Branch <span className="field-hint">(fallback when version is unknown)</span></label>
             <input value={config.git.defaultBranch} onChange={(e) => update('git', 'defaultBranch', e.target.value)} placeholder="master" />
           </div>
+        </div>
+
+        {/* Software Tag Folders */}
+        <div className="settings-section">
+          <h3>Software Tag Folders</h3>
+          <p className="field-help" style={{ marginBottom: 14 }}>
+            Map each software to its tag root folder in the Git repository.<br />
+            e.g. tags like <code>pos/2.1.3/36</code> → folder is <code>pos</code>
+          </p>
+          {softwares.length === 0 && (
+            <p className="field-help">No softwares loaded (check Crash Report Server URL).</p>
+          )}
+          {softwares.map((sw) => (
+            <div className="field tag-folder-row" key={sw.id}>
+              <label>{sw.name} <span className="field-hint">ID: {sw.id}</span></label>
+              <input
+                value={config.git.softwareTagFolders?.[String(sw.id)] ?? ''}
+                onChange={(e) => setConfig({
+                  ...config,
+                  git: {
+                    ...config.git,
+                    softwareTagFolders: {
+                      ...(config.git.softwareTagFolders ?? {}),
+                      [String(sw.id)]: e.target.value,
+                    },
+                  },
+                })}
+                placeholder="e.g. pos, meditlink"
+              />
+            </div>
+          ))}
         </div>
 
         {/* Debugger */}

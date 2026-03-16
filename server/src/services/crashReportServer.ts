@@ -71,22 +71,13 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
   );
 }
 
-function computeBranch(swVersion: string): string {
-  const config = loadConfig();
-  const prefix = config.git.branchPrefix || 'release/';
-  const defaultBranch = config.git.defaultBranch || 'master';
-  if (!swVersion) return defaultBranch;
-  const shortVersion = swVersion.split('.').slice(0, 3).join('.');
-  return `${prefix}${shortVersion}`;
-}
-
 function mapReport(r: any, softwareId: number): CrashReport {
   const swVersion = r.sw_version || r.version || '';
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
     swVersion,
-    releaseBranch: computeBranch(swVersion),
+    releaseTag: '',
     receivedAt: r.date_created || r.date || new Date().toISOString(),
     dumpUrl: r.file_link || r.fileLink || '',
     exceptionCode: r.EXCEPTION_CODE_STR || r.exceptionCode,
@@ -102,21 +93,19 @@ function mapReport(r: any, softwareId: number): CrashReport {
 }
 
 function mapReportDetail(r: ApiReportDetail): CrashReport {
-  const config = loadConfig();
-
   return {
     id: r.id,
-    subject: r.mail_title || `Crash #${r.id}`,
-    swVersion: r.sw_version || '',
-    releaseBranch: computeBranch(r.sw_version || ''),
-    receivedAt: r.date_created || r.date || new Date().toISOString(),
-    dumpUrl: r.file_link || '',
+    subject: r.mail_title || r.subject || `Crash #${r.id}`,
+    swVersion: r.sw_version || r.swVersion || r.version || '',
+    releaseTag: '',
+    receivedAt: r.date_created || r.dateCreated || r.date || new Date().toISOString(),
+    dumpUrl: r.file_link || r.fileLink || '',
     exceptionCode: r.EXCEPTION_CODE_STR,
     bugcheck: r.BUGCHECK_STR,
     region: r.region,
     country: r.country,
-    serialNo: r.serial_no,
-    softwareId: r.software_id || 0,
+    serialNo: r.serial_no || r.serialNo,
+    softwareId: r.software_id || r.softwareId || 0,
     stackTraces: (r.stackTraces || []).map((s) => ({
       id: s.id,
       dllName: s.dllName,
@@ -143,15 +132,3 @@ export function formatCallStack(report: CrashReport): string {
     .join('\n');
 }
 
-export function getReleaseBranch(report: CrashReport): string {
-  const config = loadConfig();
-  const prefix = config.git.branchPrefix || 'release/';
-  const defaultBranch = config.git.defaultBranch || 'master';
-
-  if (!report.swVersion) return defaultBranch;
-
-  // e.g. "2.1.3.456" → "release/2.1.3"
-  const parts = report.swVersion.split('.');
-  const shortVersion = parts.slice(0, 3).join('.');
-  return `${prefix}${shortVersion}`;
-}

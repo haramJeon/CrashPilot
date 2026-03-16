@@ -212,6 +212,17 @@
   color: var(--text-muted);
 }
 
+.tag-folder-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.tag-folder-row label {
+  margin-bottom: 0;
+}
+
 .platform-badge {
   font-size: 11px;
   font-weight: 600;

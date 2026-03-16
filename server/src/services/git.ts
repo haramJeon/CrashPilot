@@ -42,98 +42,215 @@ export async function listRemoteRefs(): Promise<RemoteRef[]> {
 
 /**
  * Find branches/tags that match a given sw_version string.
- * Matches if the ref contains the version (or major.minor.patch part of it).
+ * Optionally filter by tagFolder (first segment of tag path).
  */
-export function findMatchingRefs(refs: RemoteRef[], swVersion: string): RemoteRef[] {
+export function findMatchingRefs(
+  refs: RemoteRef[],
+  swVersion: string,
+  tagFolder?: string
+): RemoteRef[] {
   if (!swVersion) return [];
 
   const parts = swVersion.split('.');
-  // Try exact match, then major.minor.patch, then major.minor
   const candidates = [
     swVersion,
     parts.slice(0, 3).join('.'),
     parts.slice(0, 2).join('.'),
   ].filter(Boolean);
 
-  return refs.filter((ref) =>
-    candidates.some((v) => ref.short.includes(v))
-  );
+  return refs.filter((ref) => {
+    if (tagFolder && ref.type === 'tag') {
+      const folder = ref.short.split('/')[0];
+      if (folder !== tagFolder) return false;
+    }
+    return candidates.some((v) => ref.short.includes(v));
+  });
 }
 
 /**
- * Convert branch name to a safe folder name.
- * e.g. "release/2.1.3" → "release_2.1.3"
+ * Get unique top-level tag folder names.
+ * e.g. tags: ["pos/2.1.3/36", "meditlink/3.0.1/10"] → ["pos", "meditlink"]
  */
-function branchToFolder(branch: string): string {
-  return branch.replace(/[\/\\:*?"<>|]/g, '_');
+export function getTagFolders(refs: RemoteRef[]): string[] {
+  const folders = new Set<string>();
+  for (const ref of refs) {
+    if (ref.type === 'tag') {
+      const folder = ref.short.split('/')[0];
+      if (folder) folders.add(folder);
+    }
+  }
+  return Array.from(folders).sort();
+}
+
+/**
+ * Auto-suggest the best tag folder for a software name.
+ * Checks if any tag folder is a substring of the software name (case-insensitive), or vice versa.
+ */
+export function guessTagFolder(folders: string[], softwareName: string): string | null {
+  if (!softwareName || folders.length === 0) return folders[0] || null;
+  const lower = softwareName.toLowerCase().replace(/[\s_-]/g, '');
+  // Exact or substring match
+  const match = folders.find((f) => lower.includes(f.toLowerCase()) || f.toLowerCase().includes(lower));
+  return match || folders[0];
+}
+
+/**
+ * Find the best (latest) tag for a given folder + sw_version.
+ * Tag format: folder/major.minor.patch/build
+ * Returns the tag short name, or null if not found.
+ */
+export function findBestTag(refs: RemoteRef[], tagFolder: string, swVersion: string): string | null {
+  const parts = swVersion.split('.');
+  const versionCandidates = [
+    swVersion,
+    parts.slice(0, 3).join('.'),
+    parts.slice(0, 2).join('.'),
+  ].filter(Boolean);
+
+  const matching = refs.filter((ref) => {
+    if (ref.type !== 'tag') return false;
+    const folder = ref.short.split('/')[0];
+    if (folder !== tagFolder) return false;
+    return versionCandidates.some((v) => ref.short.includes(v));
+  });
+
+  if (matching.length === 0) return null;
+
+  // Sort: prefer tag with highest build number (last segment)
+  matching.sort((a, b) => {
+    const buildA = parseInt(a.short.split('/').pop() || '0');
+    const buildB = parseInt(b.short.split('/').pop() || '0');
+    return buildB - buildA;
+  });
+
+  return matching[0].short;
+}
+
+/**
+ * Convert a branch/tag ref to a local subfolder path.
+ * Tag format "pos/2.2.1/36" → folder "pos/2.2.1.36"
+ *   (app folder kept, version + build joined with dot)
+ * Branch format "release/2.1.3" → folder "release/2.1.3"
+ *   (kept as-is, slashes become path separators)
+ * Invalid filesystem chars are replaced with '_'.
+ */
+function refToFolder(ref: string): string {
+  const parts = ref.split('/');
+  // Tag pattern: folder / major.minor.patch / build  (3+ segments, last is numeric)
+  if (parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1])) {
+    const appFolder = parts[0];
+    const versionParts = parts.slice(1); // ["2.2.1", "36"]
+    return `${appFolder}/${versionParts.join('.')}`.replace(/[\\:*?"<>|]/g, '_');
+  }
+  // Branch or other: keep slashes as path separators
+  return ref.replace(/[\\:*?"<>|]/g, '_');
 }
 
 /**
  * Returns the local repo path for a given branch.
  * Creates repoBaseDir if it doesn't exist.
  */
-export function getRepoDirForBranch(branch: string): string {
+export function getRepoDirForBranch(ref: string): string {
   const config = loadConfig();
   const baseDir = config.git.repoBaseDir;
   if (!baseDir) throw new Error('Git repoBaseDir is not configured in Settings.');
-  const repoDir = path.join(baseDir, branchToFolder(branch));
+  const repoDir = path.join(baseDir, refToFolder(ref));
   return repoDir;
 }
 
+function gitWithLog(baseDir?: string, onLog?: (line: string) => void) {
+  const git = baseDir ? simpleGit(baseDir) : simpleGit();
+  if (onLog) {
+    git.outputHandler((_cmd, stdout, stderr) => {
+      const emit = (data: Buffer) => {
+        data.toString().split('\n').forEach((l) => {
+          const line = l.replace(/\r/g, '').trim();
+          if (line) onLog(line);
+        });
+      };
+      stdout.on('data', emit);
+      stderr.on('data', emit);
+    });
+  }
+  return git;
+}
+
 /**
- * Ensures a local clone exists for the given branch.
- * - If folder doesn't exist: clone with --single-branch for that branch
- * - If folder exists: pull latest
- * Returns the local repo path.
+ * Checkout a branch or tag into a version subfolder.
+ * - Branch: clone --branch <name> --single-branch, or pull
+ * - Tag: clone --branch <tag> --single-branch (tags work as --branch value)
  */
-export async function checkoutBranch(branch: string): Promise<string> {
+export async function checkoutRef(ref: string, onLog?: (line: string) => void): Promise<string> {
   const config = loadConfig();
   const repoUrl = config.git.repoUrl;
   if (!repoUrl) throw new Error('Git repoUrl is not configured in Settings.');
 
-  const repoDir = getRepoDirForBranch(branch);
+  const repoDir = getRepoDirForBranch(ref);
 
   if (!fs.existsSync(repoDir)) {
-    console.log(`[git] Cloning ${repoUrl} branch "${branch}" into ${repoDir}...`);
     fs.mkdirSync(repoDir, { recursive: true });
+    onLog?.(`> git clone --branch ${ref} --single-branch --depth 20 --progress ${repoUrl} ${repoDir}`);
     try {
-      await simpleGit().clone(repoUrl, repoDir, [
-        '--branch', branch,
+      await gitWithLog(undefined, onLog).clone(repoUrl, repoDir, [
+        '--branch', ref,
         '--single-branch',
-        '--depth', '10',
+        '--depth', '20',
+        '--progress',
       ]);
     } catch (err: any) {
-      // Remove partial clone on failure
       fs.rmSync(repoDir, { recursive: true, force: true });
-      throw new Error(`Failed to clone branch "${branch}": ${err.message}`);
+      throw new Error(`Failed to clone ref "${ref}": ${err.message}`);
     }
   } else {
-    console.log(`[git] Pulling latest for branch "${branch}" in ${repoDir}...`);
-    const git = simpleGit(repoDir);
-    await git.pull('origin', branch);
+    onLog?.(`> git fetch origin ${ref} --progress  (in ${repoDir})`);
+    await gitWithLog(repoDir, onLog).fetch(['origin', ref, '--progress']);
   }
 
   return repoDir;
 }
 
+/**
+ * Run git submodule update --init in the given repo directory.
+ */
+export async function initSubmodules(repoDir: string, onLog?: (line: string) => void): Promise<void> {
+  onLog?.(`> git submodule update --init  (in ${repoDir})`);
+  await gitWithLog(repoDir, onLog).submoduleUpdate(['--init']);
+}
+
+// Keep old name as alias for backward compat
+export const checkoutBranch = checkoutRef;
+
 export async function createFixBranch(
-  baseBranch: string,
-  crashId: string
+  baseRef: string,
+  crashId: string,
+  onLog?: (line: string) => void
 ): Promise<{ branchName: string; repoDir: string }> {
-  const repoDir = getRepoDirForBranch(baseBranch);
-  const git = simpleGit(repoDir);
+  const repoDir = getRepoDirForBranch(baseRef);
+  const git = gitWithLog(repoDir, onLog);
+
+  // Fetch the base ref and reset to a clean state at that commit.
+  // This handles re-run: repo may be on an old fix branch with previous changes applied.
+  onLog?.(`> git fetch origin ${baseRef}  (in ${repoDir})`);
+  await git.fetch(['origin', baseRef]);
+  onLog?.(`> git checkout --detach FETCH_HEAD`);
+  await git.raw(['checkout', '--detach', 'FETCH_HEAD']);
+  onLog?.(`> git reset --hard FETCH_HEAD`);
+  await git.raw(['reset', '--hard', 'FETCH_HEAD']);
+
   const branchName = `fix/crash-${crashId}-${Date.now()}`;
-  await git.checkoutBranch(branchName, `origin/${baseBranch}`);
+  onLog?.(`> git checkout -b ${branchName}`);
+  await git.checkoutBranch(branchName, 'HEAD');
   return { branchName, repoDir };
 }
 
-export async function applyFixes(repoDir: string, fixedFiles: FixedFile[]): Promise<void> {
+export async function applyFixes(repoDir: string, fixedFiles: FixedFile[], onLog?: (line: string) => void): Promise<void> {
   for (const file of fixedFiles) {
     const fullPath = path.join(repoDir, file.path);
     const dir = path.dirname(fullPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    onLog?.(`Writing fix: ${fullPath}`);
     fs.writeFileSync(fullPath, file.modified, 'utf-8');
   }
 }
@@ -141,14 +258,19 @@ export async function applyFixes(repoDir: string, fixedFiles: FixedFile[]): Prom
 export async function commitAndPush(
   repoDir: string,
   fixedFiles: FixedFile[],
-  message: string
+  message: string,
+  onLog?: (line: string) => void
 ): Promise<void> {
-  const git = simpleGit(repoDir);
+  const git = gitWithLog(repoDir, onLog);
   for (const file of fixedFiles) {
+    onLog?.(`> git add ${file.path}`);
     await git.add(file.path);
   }
+  const firstLine = message.split('\n')[0];
+  onLog?.(`> git commit -m "${firstLine}"`);
   await git.commit(message);
   const branch = (await git.branch()).current;
+  onLog?.(`> git push origin ${branch} --set-upstream`);
   await git.push('origin', branch, ['--set-upstream']);
 }
 

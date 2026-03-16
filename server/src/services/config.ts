@@ -10,6 +10,16 @@ export function getCurrentPlatform(): Platform {
 }
 
 const DEFAULT_CONFIG: AppConfig = {
+  releaseBuildBaseDir: '',
+  buildNetworkBaseDir: '',
+  softwareBuildPaths: {},
+  crashDb: {
+    host: '10.100.1.46',
+    port: 3306,
+    user: 'root',
+    password: 'admin',
+    database: 'crash_report',
+  },
   crashReportServer: {
     url: 'http://rnd3.meditlink.com:5001',
     softwareIds: [],
@@ -37,6 +47,7 @@ const DEFAULT_CONFIG: AppConfig = {
     repoBaseDir: '',
     branchPrefix: 'release/',
     defaultBranch: 'master',
+    softwareTagFolders: {},
   },
 };
 
@@ -48,6 +59,7 @@ export function loadConfig(): AppConfig {
         ...DEFAULT_CONFIG,
         ...saved,
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...saved.crashReportServer },
+        crashDb: { ...DEFAULT_CONFIG.crashDb, ...saved.crashDb },
         claude: { ...DEFAULT_CONFIG.claude, ...saved.claude },
         github: { ...DEFAULT_CONFIG.github, ...saved.github },
         debugger: {

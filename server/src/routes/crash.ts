@@ -7,6 +7,11 @@ import type { CrashReport } from '../types';
 // In-memory store
 let crashReports: CrashReport[] = [];
 
+export function updateCrashRecord(id: number, updates: Partial<CrashReport>): void {
+  const idx = crashReports.findIndex((c) => c.id === id);
+  if (idx >= 0) crashReports[idx] = { ...crashReports[idx], ...updates };
+}
+
 export function crashRouter(io: SocketIOServer): Router {
   const router = Router();
 

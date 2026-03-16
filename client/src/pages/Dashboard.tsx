@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X, Search, Loader } from 'lucide-react';
+import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X, Search, Loader, Info } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
-import type { CrashReport, ApiSoftware } from '../types';
+import type { CrashReport, CrashStatus, ApiSoftware } from '../types';
 import './Dashboard.css';
 
 interface RemoteRef { name: string; short: string; type: 'branch' | 'tag'; }
@@ -19,15 +19,15 @@ function defaultDateRange() {
   };
 }
 
-function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: number, branch: string) => void }) {
+function TagCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: number, tag: string) => void }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(crash.releaseBranch);
+  const [value, setValue] = useState(crash.releaseTag);
   const [searching, setSearching] = useState(false);
   const [matches, setMatches] = useState<RemoteRef[]>([]);
   const [searchError, setSearchError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setValue(crash.releaseBranch); }, [crash.releaseBranch]);
+  useEffect(() => { setValue(crash.releaseTag); }, [crash.releaseTag]);
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
   const confirm = (e: React.MouseEvent) => {
@@ -38,7 +38,7 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
   };
   const cancel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setValue(crash.releaseBranch);
+    setValue(crash.releaseTag);
     setEditing(false);
     setMatches([]);
     setSearchError('');
@@ -50,11 +50,15 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
     setSearchError('');
     setMatches([]);
     try {
-      const refs = await apiGet<RemoteRef[]>(`/git/refs/match?version=${encodeURIComponent(crash.swVersion)}`);
-      setMatches(refs);
-      if (refs.length === 0) setSearchError(`No refs found for "${crash.swVersion}"`);
-    } catch (err: any) {
-      setSearchError(err.message);
+      const refs = await apiGet<RemoteRef[]>(
+        `/git/refs/match?version=${encodeURIComponent(crash.swVersion)}`
+      );
+      // show tags first, then branches
+      const sorted = [...refs.filter((r) => r.type === 'tag'), ...refs.filter((r) => r.type === 'branch')];
+      setMatches(sorted);
+      if (sorted.length === 0) setSearchError(`No refs found for "${crash.swVersion}"`);
+    } catch (err: unknown) {
+      setSearchError(err instanceof Error ? err.message : String(err));
     } finally {
       setSearching(false);
     }
@@ -62,10 +66,8 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
 
   const pickRef = (e: React.MouseEvent, ref: RemoteRef) => {
     e.stopPropagation();
-    // Use branch name directly, or derive branch from tag if needed
-    const branch = ref.type === 'branch' ? ref.short : ref.short;
-    setValue(branch);
-    onUpdate(crash.id, branch);
+    setValue(ref.short);
+    onUpdate(crash.id, ref.short);
     setEditing(false);
     setMatches([]);
   };
@@ -81,17 +83,16 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { onUpdate(crash.id, value); setEditing(false); setMatches([]); }
-              if (e.key === 'Escape') { setValue(crash.releaseBranch); setEditing(false); setMatches([]); }
+              if (e.key === 'Escape') { setValue(crash.releaseTag); setEditing(false); setMatches([]); }
             }}
           />
-          <button className="branch-btn" onClick={searchRemote} title="Search remote refs" disabled={searching}>
+          <button className="branch-btn" onClick={searchRemote} title="Search remote tags/branches" disabled={searching}>
             {searching ? <Loader size={12} className="spinning" /> : <Search size={12} />}
           </button>
           <button className="branch-btn branch-btn-ok" onClick={confirm} title="Confirm"><Check size={12} /></button>
           <button className="branch-btn branch-btn-cancel" onClick={cancel} title="Cancel"><X size={12} /></button>
         </div>
 
-        {/* Remote ref results */}
         {matches.length > 0 && (
           <div className="branch-matches">
             {matches.map((ref) => (
@@ -109,11 +110,11 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
 
   return (
     <div className="branch-display" onClick={(e) => e.stopPropagation()}>
-      <code className="branch-tag">{crash.releaseBranch}</code>
+      <code className="branch-tag">{crash.releaseTag || '—'}</code>
       <button
         className="branch-edit-btn"
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-        title="Edit / search branch"
+        title="Edit / search tag"
       >
         <Pencil size={12} />
       </button>
@@ -124,33 +125,61 @@ function BranchCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: nu
 export default function Dashboard() {
   const [crashes, setCrashes] = useState<CrashReport[]>([]);
   const [softwares, setSoftwares] = useState<ApiSoftware[]>([]);
+  const [historyIds, setHistoryIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [selectedSoftwareId, setSelectedSoftwareId] = useState<number>(0);
   const [dateRange, setDateRange] = useState(defaultDateRange);
   const navigate = useNavigate();
   const socketRef = useSocket();
+  const tagFoldersRef = useRef<Record<string, string>>({});
+
+  // Build tag from folder + version: "pos" + "2.2.1.36" → "pos/2.2.1/36"
+  const buildTag = (folder: string, swVersion: string): string => {
+    const parts = swVersion.split('.');
+    const mainVersion = parts.slice(0, 3).join('.');
+    const build = parts[3];
+    return build ? `${folder}/${mainVersion}/${build}` : `${folder}/${mainVersion}`;
+  };
+
+  const autoPopulateTags = (list: CrashReport[]) => {
+    const folders = tagFoldersRef.current;
+    setCrashes(list.map((c) => {
+      const folder = folders[String(c.softwareId)];
+      if (!folder || !c.swVersion) return { ...c, releaseTag: '' };
+      return { ...c, releaseTag: buildTag(folder, c.swVersion) };
+    }));
+  };
 
   useEffect(() => {
-    apiGet<CrashReport[]>('/crash').then(setCrashes).catch(() => {});
+    apiGet<{ git: { softwareTagFolders: Record<string, string> } }>('/config')
+      .then((cfg) => { tagFoldersRef.current = cfg.git.softwareTagFolders ?? {}; })
+      .catch(() => {})
+      .finally(() => {
+        apiGet<CrashReport[]>('/crash').then(autoPopulateTags).catch(() => {});
+      });
     apiGet<ApiSoftware[]>('/crash/softwares').then(setSoftwares).catch(() => {});
+    apiGet<number[]>('/pipeline/history').then((ids) => setHistoryIds(new Set(ids))).catch(() => {});
     const socket = socketRef.current;
     if (!socket) return;
-    socket.on('crashes:updated', (data: CrashReport[]) => setCrashes(data));
+    socket.on('crashes:updated', (data: CrashReport[]) => autoPopulateTags(data));
     socket.on('status', (data: { message: string }) => setStatusMsg(data.message));
-    return () => { socket.off('crashes:updated'); socket.off('status'); };
-  }, []);
+    socket.on('pipeline:complete', (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)])));
+    socket.on('pipeline:error', (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)])));
+    return () => { socket.off('crashes:updated'); socket.off('status'); socket.off('pipeline:complete'); socket.off('pipeline:error'); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchCrashes = async () => {
     setLoading(true);
     setStatusMsg('Fetching crash reports...');
     try {
-      const body: Record<string, any> = { startDate: dateRange.start, endDate: dateRange.end };
+      const body: Record<string, unknown> = { startDate: dateRange.start, endDate: dateRange.end };
       if (selectedSoftwareId !== 0) body.softwareId = selectedSoftwareId;
-      const result = await apiPost<{ count: number }>('/crash/fetch', body);
+      const result = await apiPost<{ count: number; crashes: CrashReport[] }>('/crash/fetch', body);
       setStatusMsg(`Fetched ${result.count} reports`);
-    } catch (e: any) {
-      setStatusMsg(`Error: ${e.message}`);
+      if (result.crashes) autoPopulateTags(result.crashes);
+    } catch (e: unknown) {
+      setStatusMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -160,17 +189,17 @@ export default function Dashboard() {
     try {
       await apiPost(`/pipeline/run/${crash.id}`, crash);
       navigate(`/crash/${crash.id}`);
-    } catch (e: any) {
-      setStatusMsg(`Error: ${e.message}`);
+    } catch (e: unknown) {
+      setStatusMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
-  const updateBranch = async (id: number, branch: string) => {
+  const updateTag = async (id: number, tag: string) => {
     try {
-      const updated = await apiPatch<CrashReport>(`/crash/${id}`, { releaseBranch: branch });
-      setCrashes((prev) => prev.map((c) => (c.id === id ? { ...c, releaseBranch: updated.releaseBranch } : c)));
-    } catch (e: any) {
-      setStatusMsg(`Error updating branch: ${e.message}`);
+      const updated = await apiPatch<CrashReport>(`/crash/${id}`, { releaseTag: tag });
+      setCrashes((prev) => prev.map((c) => (c.id === id ? { ...c, releaseTag: updated.releaseTag } : c)));
+    } catch (e: unknown) {
+      setStatusMsg(`Error updating tag: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -239,7 +268,7 @@ export default function Dashboard() {
                   <th>#</th>
                   <th>Subject</th>
                   <th>Version</th>
-                  <th>Branch</th>
+                  <th>Tag</th>
                   <th>Exception</th>
                   <th>Region</th>
                   <th>Date</th>
@@ -253,19 +282,32 @@ export default function Dashboard() {
                     <td className="crash-id">{crash.id}</td>
                     <td className="crash-subject">{crash.subject}</td>
                     <td><code className="branch-tag">{crash.swVersion}</code></td>
-                    <td><BranchCell crash={crash} onUpdate={updateBranch} /></td>
+                    <td><TagCell crash={crash} onUpdate={updateTag} /></td>
                     <td className="crash-exception">{crash.exceptionCode || crash.bugcheck || '—'}</td>
                     <td className="crash-region">{crash.region || '—'}</td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td><StatusBadge status={crash.status} /></td>
                     <td>
-                      {crash.status === 'new' && (
-                        <button className="btn btn-sm btn-accent" onClick={(e) => { e.stopPropagation(); runPipeline(crash); }}>
-                          <Play size={14} /> Run
+                      {historyIds.has(crash.id) ? (
+                        <button className="btn btn-sm btn-info" onClick={(e) => { e.stopPropagation(); navigate(`/crash/${crash.id}`); }}>
+                          <Info size={14} /> View Result
                         </button>
-                      )}
-                      {crash.analysis?.prUrl && (
-                        <a href={crash.analysis.prUrl} target="_blank" rel="noreferrer" className="btn btn-sm btn-success" onClick={(e) => e.stopPropagation()}>View PR</a>
+                      ) : (
+                        <>
+                          {crash.status === 'new' && (
+                            <button className="btn btn-sm btn-accent" onClick={(e) => { e.stopPropagation(); runPipeline(crash); }}>
+                              <Play size={14} /> Run
+                            </button>
+                          )}
+                          {(['analyzing', 'fixing', 'creating_pr'] as CrashStatus[]).includes(crash.status) && (
+                            <button className="btn btn-sm btn-running" onClick={(e) => { e.stopPropagation(); navigate(`/crash/${crash.id}`); }}>
+                              <Loader size={14} className="spinning" /> Pipeline...
+                            </button>
+                          )}
+                          {crash.analysis?.prUrl && (
+                            <a href={crash.analysis.prUrl} target="_blank" rel="noreferrer" className="btn btn-sm btn-success" onClick={(e) => e.stopPropagation()}>View PR</a>
+                          )}
+                        </>
                       )}
                     </td>
                   </tr>

@@ -10,7 +10,7 @@ function runClaude(
   shouldAbort?: () => boolean,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const args = ['--print'];
+    const args = ['--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
     for (const dir of allowedDirs ?? []) {
       args.push('--add-dir', dir);
     }
@@ -19,7 +19,7 @@ function runClaude(
     proc.stdin.write(prompt, 'utf-8');
     proc.stdin.end();
 
-    const outLines: string[] = [];
+    let finalResult = '';
     const errLines: string[] = [];
     let outRemainder = '';
     let errRemainder = '';
@@ -29,8 +29,16 @@ function runClaude(
       const lines = text.split('\n');
       outRemainder = lines.pop() ?? '';
       for (const line of lines) {
-        outLines.push(line);
-        onLog?.(line);
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          handleStreamEvent(event, onLog);
+          if (event.type === 'result' && event.result) {
+            finalResult = event.result;
+          }
+        } catch {
+          onLog?.(line);
+        }
       }
     });
 
@@ -62,10 +70,16 @@ function runClaude(
     proc.on('close', (code) => {
       clearTimeout(timer);
       if (abortPoller) clearInterval(abortPoller);
-      if (outRemainder) { outLines.push(outRemainder); onLog?.(outRemainder); }
+      if (outRemainder.trim()) {
+        try {
+          const event = JSON.parse(outRemainder);
+          handleStreamEvent(event, onLog);
+          if (event.type === 'result' && event.result) finalResult = event.result;
+        } catch { onLog?.(outRemainder); }
+      }
       if (errRemainder) { errLines.push(errRemainder); onLog?.(`[stderr] ${errRemainder}`); }
       if (code === 0) {
-        resolve(outLines.join('\n'));
+        resolve(finalResult);
       } else {
         reject(new Error(errLines.join('\n') || `claude exited with code ${code}`));
       }
@@ -73,6 +87,34 @@ function runClaude(
 
     proc.on('error', (e) => { clearTimeout(timer); if (abortPoller) clearInterval(abortPoller); reject(e); });
   });
+}
+
+function handleStreamEvent(event: any, onLog?: (line: string) => void): void {
+  if (!onLog) return;
+  switch (event.type) {
+    case 'assistant': {
+      const content = event.message?.content ?? [];
+      for (const block of content) {
+        if (block.type === 'text' && block.text?.trim()) {
+          for (const line of block.text.trim().split('\n')) {
+            if (line.trim()) onLog(`[claude] ${line}`);
+          }
+        } else if (block.type === 'tool_use') {
+          const input = block.input ?? {};
+          const detail =
+            input.command ?? input.file_path ?? input.path ?? input.pattern ?? JSON.stringify(input).slice(0, 120);
+          onLog(`[tool:${block.name}] ${detail}`);
+        }
+      }
+      break;
+    }
+    case 'result':
+      onLog(`[result] subtype=${event.subtype} cost=$${event.total_cost_usd?.toFixed(4) ?? '?'}`);
+      break;
+    case 'system':
+      if (event.subtype === 'init') onLog(`[init] tools: ${(event.tools ?? []).map((t: any) => t.name ?? t).join(', ')}`);
+      break;
+  }
 }
 
 export async function analyzeAndFix(params: {
@@ -103,7 +145,7 @@ Rules:
 - Only include files you actually change
 
 Reply with ONLY this JSON (no markdown):
-{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"...","content":"..."}]}`;
+{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"...","content":"<FULL file content, not a patch — the content will be written directly to disk>"}]}`;
 
   onLog?.(`[AI] Exception: ${params.exceptionType} | Module: ${params.faultingModule}`);
   onLog?.(`[AI] CDB file : ${params.cdbTxtPath || '(none)'}`);
@@ -119,8 +161,12 @@ Reply with ONLY this JSON (no markdown):
   const text = await runClaude(prompt, params.repoDir, allowedDirs, onLog, params.shouldAbort);
   onLog?.(`[AI] Response received — ${text.length} chars`);
 
+  // Extract JSON object from response even if surrounded by explanatory text
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  const jsonText = jsonMatch ? jsonMatch[0] : text;
+
   try {
-    const result = JSON.parse(text.trim());
+    const result = JSON.parse(jsonText);
     const fixedFiles: FixedFile[] = (result.fixedFiles || []).map((f: any) => {
       const original = '';
       return {

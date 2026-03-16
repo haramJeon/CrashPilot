@@ -1,17 +1,42 @@
 import { spawn } from 'child_process';
+import * as path from 'path';
 import { FixedFile } from '../types';
 
-function runClaude(prompt: string): Promise<string> {
+function runClaude(prompt: string, cwd?: string, allowedDirs?: string[], onLog?: (line: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('claude', ['--print'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const args = ['--print'];
+    for (const dir of allowedDirs ?? []) {
+      args.push('--add-dir', dir);
+    }
+    const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
 
     proc.stdin.write(prompt, 'utf-8');
     proc.stdin.end();
 
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    proc.stdout.on('data', (chunk: Buffer) => out.push(chunk));
-    proc.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    const outLines: string[] = [];
+    const errLines: string[] = [];
+    let outRemainder = '';
+    let errRemainder = '';
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = outRemainder + chunk.toString('utf-8');
+      const lines = text.split('\n');
+      outRemainder = lines.pop() ?? '';
+      for (const line of lines) {
+        outLines.push(line);
+        onLog?.(line);
+      }
+    });
+
+    proc.stderr.on('data', (chunk: Buffer) => {
+      const text = errRemainder + chunk.toString('utf-8');
+      const lines = text.split('\n');
+      errRemainder = lines.pop() ?? '';
+      for (const line of lines) {
+        errLines.push(line);
+        onLog?.(`[stderr] ${line}`);
+      }
+    });
 
     const timer = setTimeout(() => {
       proc.kill();
@@ -20,10 +45,12 @@ function runClaude(prompt: string): Promise<string> {
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (outRemainder) { outLines.push(outRemainder); onLog?.(outRemainder); }
+      if (errRemainder) { errLines.push(errRemainder); onLog?.(`[stderr] ${errRemainder}`); }
       if (code === 0) {
-        resolve(Buffer.concat(out).toString('utf-8'));
+        resolve(outLines.join('\n'));
       } else {
-        reject(new Error(Buffer.concat(err).toString('utf-8') || `claude exited with code ${code}`));
+        reject(new Error(errLines.join('\n') || `claude exited with code ${code}`));
       }
     });
 
@@ -32,11 +59,10 @@ function runClaude(prompt: string): Promise<string> {
 }
 
 export async function analyzeAndFix(params: {
-  callStack: string;
   exceptionType: string;
   faultingModule: string;
   cdbTxtPath?: string;
-  sourceFiles: { path: string; content: string }[];
+  repoDir?: string;
   onLog?: (line: string) => void;
 }): Promise<{
   rootCause: string;
@@ -45,24 +71,16 @@ export async function analyzeAndFix(params: {
 }> {
   const { onLog } = params;
 
-  const sourceContext = params.sourceFiles
-    .map((f) => `--- ${f.path} ---\n${f.content}`)
-    .join('\n\n');
+  const prompt = `C++ crash analysis. Read the CDB output file, find the relevant source files, and fix the crash.
 
-  const prompt = `C++ crash analysis. Read the CDB output file for full details, then fix the source code.
+${params.cdbTxtPath ? `CDB output: ${params.cdbTxtPath}` : `Exception: ${params.exceptionType} in ${params.faultingModule} (no CDB file available)`}
 
-Exception: ${params.exceptionType} in ${params.faultingModule}
-${params.cdbTxtPath ? `CDB output: ${params.cdbTxtPath} (read this file for the full crash details)` : ''}
-
-Call stack (find the first non-OS frame — that is the crash site):
-${params.callStack}
-
-Source files to fix:
-${sourceContext || '(none — infer from call stack)'}
+Source repo is your current working directory. Find the relevant source files yourself.
 
 Rules:
-- Read the CDB file above for exception details, registers, and symbol info
-- Identify the exact crashing function from the call stack
+- Read the CDB file for the full crash details: call stack, exception, registers, symbol info
+- Identify the crashing function (first non-OS frame in the call stack)
+- Search the repo for the relevant source files
 - Produce the minimal fix
 - Only include files you actually change
 
@@ -71,21 +89,22 @@ Reply with ONLY this JSON (no markdown):
 
   onLog?.(`[AI] Exception: ${params.exceptionType} | Module: ${params.faultingModule}`);
   onLog?.(`[AI] CDB file : ${params.cdbTxtPath || '(none)'}`);
-  onLog?.(`[AI] Stack    : ${params.callStack.split('\n').filter(Boolean).length} lines`);
-  onLog?.(`[AI] Sources  : ${params.sourceFiles.length} file(s) — ${params.sourceFiles.map(f => f.path).join(', ') || '(none)'}`);
+  onLog?.(`[AI] RepoDir  : ${params.repoDir || '(none)'}`);
   onLog?.(`[AI] Prompt   : ${prompt.length} chars`);
   onLog?.(`[AI] ── Prompt ─────────────────────`);
   for (const line of prompt.split('\n')) onLog?.(line);
   onLog?.(`[AI] ────────────────────────────────`);
   onLog?.(`[AI] Sending to claude CLI...`);
 
-  const text = await runClaude(prompt);
+  const allowedDirs = params.cdbTxtPath ? [path.dirname(params.cdbTxtPath)] : [];
+
+  const text = await runClaude(prompt, params.repoDir, allowedDirs, onLog);
   onLog?.(`[AI] Response received — ${text.length} chars`);
 
   try {
     const result = JSON.parse(text.trim());
     const fixedFiles: FixedFile[] = (result.fixedFiles || []).map((f: any) => {
-      const original = params.sourceFiles.find((s) => s.path === f.path)?.content || '';
+      const original = '';
       return {
         path: f.path,
         original,

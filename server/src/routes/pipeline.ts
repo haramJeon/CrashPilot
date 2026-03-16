@@ -5,7 +5,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, applyFixes, commitAndPush, getSourceFiles, initSubmodules, getRepoDirForBranch } from '../services/git';
+import { checkoutBranch, createFixBranch, applyFixes, commitAndPush, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord } from './crash';
 import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory } from '../types';
@@ -47,7 +47,6 @@ interface AIWaitState {
   cdbTxtPath: string;
   repoDir: string;
   releaseBranch: string;
-  dllNames: string[];
 }
 const aiWaitStates = new Map<string, AIWaitState>();
 
@@ -87,7 +86,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     aiWaitStates.delete(crashId);
     res.json({ message: 'AI analysis started', crashId });
 
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, repoDir, releaseBranch, dllNames } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, repoDir, releaseBranch } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -105,14 +104,11 @@ export function pipelineRouter(io: SocketIOServer): Router {
       steps[6].message = undefined;
       emitSteps(crashId, steps);
 
-      const sourceFiles = await getSourceFiles(repoDir, dllNames);
-
       const aiResult = await analyzeAndFix({
-        callStack: cdbCallStack,
         exceptionType: cdbExceptionType,
         faultingModule: cdbFaultingModule,
         cdbTxtPath,
-        sourceFiles,
+        repoDir,
         onLog: (line) => log(6, line),
       });
 
@@ -332,12 +328,6 @@ export function pipelineRouter(io: SocketIOServer): Router {
       throwIfCancelled();
 
       // Step 7: Pause — wait for manual AI trigger
-      const dllNames = detail.stackTraces
-        .map((s) => s.dllName)
-        .filter(Boolean)
-        .filter((name) => !name.startsWith('ntdll') && !name.startsWith('kernel'));
-      const uniqueDlls = [...new Set(dllNames)];
-
       steps[6].status = 'awaiting';
       steps[6].message = 'Click "Run by AI" to start AI analysis';
       emitSteps(crashId, steps);
@@ -354,7 +344,6 @@ export function pipelineRouter(io: SocketIOServer): Router {
         cdbTxtPath,
         repoDir,
         releaseBranch,
-        dllNames: uniqueDlls,
       });
 
       io.emit('pipeline:awaiting_ai', { crashId });

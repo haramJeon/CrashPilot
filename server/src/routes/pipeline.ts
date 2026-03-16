@@ -291,7 +291,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       }
       throwIfCancelled();
 
-      // Step 6: Analyze dump with CDB
+      // Step 6: Analyze dump with CDB (skip if cached txt already exists)
       steps[5].status = 'running';
       emitSteps(crashId, steps);
       let cdbCallStack = callStack;        // fallback: use API stack trace
@@ -299,7 +299,14 @@ export function pipelineRouter(io: SocketIOServer): Router {
       let cdbFaultingModule = detail.stackTraces[0]?.dllName || 'Unknown';
       let cdbOutput = '';
       try {
-        cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(5, line));
+        const dmpBase = path.basename(dmpPath, '.dmp');
+        const cdbTxtPath = path.join(pdbDir, `${dmpBase}_cdb.txt`);
+        if (fs.existsSync(cdbTxtPath)) {
+          cdbOutput = fs.readFileSync(cdbTxtPath, 'utf-8');
+          log(5, `Using cached CDB output: ${cdbTxtPath}`);
+        } else {
+          cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(5, line));
+        }
         const parsed = extractCallStack(cdbOutput);
         if (parsed.callStack) {
           cdbCallStack = parsed.callStack;

@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
@@ -67,9 +67,10 @@ export async function downloadPdbFiles(
 }
 
 /**
- * Downloads a crash dump zip from the given URL and extracts the .dmp file
- * into {pdbDir}/crashes/{crashId}/.
- * Skips if .dmp already present. Returns the full path to the .dmp file.
+ * Downloads a crash dump zip from the given URL.
+ * - Extracts all zip contents into {pdbDir}/{crashId}/
+ * - Copies the .dmp file to {pdbDir}/ (alongside PDB files, for CDB analysis)
+ * Skips if .dmp already present in pdbDir. Returns the path of the .dmp in pdbDir.
  */
 export async function downloadDump(
   crashId: string,
@@ -77,18 +78,17 @@ export async function downloadDump(
   pdbDir: string,
   onLog?: (line: string) => void
 ): Promise<string> {
-  const crashDir = path.join(pdbDir, 'crashes', String(crashId));
-
-  // Skip if already downloaded
-  if (fs.existsSync(crashDir)) {
-    const existing = fs.readdirSync(crashDir).find((f) => f.endsWith('.dmp'));
-    if (existing) {
-      const dmpPath = path.join(crashDir, existing);
-      onLog?.(`Already downloaded: ${dmpPath}`);
-      return dmpPath;
-    }
+  // Check if already copied to pdbDir root
+  const existingDmp = fs.existsSync(pdbDir)
+    ? fs.readdirSync(pdbDir).find((f) => f.endsWith('.dmp') && f.includes(String(crashId)))
+    : undefined;
+  if (existingDmp) {
+    const dmpPath = path.join(pdbDir, existingDmp);
+    onLog?.(`Already downloaded: ${dmpPath}`);
+    return dmpPath;
   }
 
+  const crashDir = path.join(pdbDir, String(crashId));
   fs.mkdirSync(crashDir, { recursive: true });
 
   const zipPath = path.join(crashDir, 'dump.zip');
@@ -96,21 +96,28 @@ export async function downloadDump(
 
   onLog?.(`> Downloading: ${cleanUrl}`);
   onLog?.(`  → ${zipPath}`);
-
   await downloadFile(cleanUrl, zipPath, onLog);
 
-  onLog?.(`> Extracting .dmp from zip...`);
+  // Extract entire zip into crashDir
+  onLog?.(`> Extracting zip contents...`);
+  onLog?.(`  → ${crashDir}`);
   const zip = new AdmZip(zipPath);
+  zip.extractAllTo(crashDir, true);
+  fs.unlinkSync(zipPath);
+
+  // Find the .dmp file inside crashDir (may be in a subfolder)
   const dmpEntry = zip.getEntries().find((e) => e.entryName.endsWith('.dmp'));
   if (!dmpEntry) throw new Error('No .dmp file found in downloaded zip.');
-
   const dmpFilename = path.basename(dmpEntry.entryName);
-  zip.extractEntryTo(dmpEntry.entryName, crashDir, false, true);
-  const dmpPath = path.join(crashDir, dmpFilename);
-  onLog?.(`  → ${dmpPath}`);
+  const dmpInCrashDir = path.join(crashDir, dmpFilename);
 
-  fs.unlinkSync(zipPath);
-  return dmpPath;
+  // Copy .dmp to pdbDir root so CDB can find it alongside PDB files
+  const dmpInPdbDir = path.join(pdbDir, `${crashId}_${dmpFilename}`);
+  onLog?.(`> Copying .dmp to PDB directory...`);
+  onLog?.(`  ${dmpInCrashDir} → ${dmpInPdbDir}`);
+  fs.copyFileSync(dmpInCrashDir, dmpInPdbDir);
+
+  return dmpInPdbDir;
 }
 
 /**
@@ -170,28 +177,84 @@ function downloadFile(url: string, dest: string, onLog?: (line: string) => void)
 }
 
 // ── Windows: CDB analysis ──
-function analyzeDumpWindows(dumpPath: string): string {
-  const config = loadConfig();
-  const { cdbPath, symbolPath } = config.debugger.windows;
+// Default CDB path installed by Windows SDK / WinDbg
+const DEFAULT_CDB_PATH = 'C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe';
 
-  if (!fs.existsSync(cdbPath)) {
-    throw new Error(`CDB not found at: ${cdbPath}. Install Windows Debugging Tools (Windows SDK).`);
-  }
+function analyzeDumpWindows(
+  dumpPath: string,
+  pdbDir: string,
+  onLog?: (line: string) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const config = loadConfig();
+    const { symbolPath } = config.debugger.windows;
+    const cdbPath = config.debugger.windows.cdbPath || DEFAULT_CDB_PATH;
 
-  const commands = [
-    `.sympath+ ${symbolPath}`,
-    '.reload',
-    '!analyze -v',
-    'kb',
-    '.ecxr',
-    'kb',
-    'q',
-  ].join('; ');
+    if (!fs.existsSync(cdbPath)) {
+      reject(new Error(
+        `CDB not found at: ${cdbPath}\n` +
+        `Install Windows Debugging Tools via:\n` +
+        `  winget install Microsoft.WindowsSDK.10.0.18362\n` +
+        `Default path: ${DEFAULT_CDB_PATH}`
+      ));
+      return;
+    }
 
-  return execSync(
-    `"${cdbPath}" -z "${dumpPath}" -c "${commands}"`,
-    { encoding: 'utf-8', timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
-  );
+    // Symbol path: pdbDir first (local PDBs), then configured path, then MS public symbols
+    const symParts = [
+      pdbDir,
+      symbolPath || '',
+      'srv*C:\\Symbols*https://msdl.microsoft.com/download/symbols',
+    ].filter(Boolean);
+    const symPath = symParts.join(';');
+
+    const commands = [
+      `.sympath "${symPath}"`,
+      '.reload /f',
+      '!analyze -v',
+      '.ecxr',
+      'kb 50',
+      '~*kb',    // all threads call stacks
+      'dv',      // local variables at crash frame
+      'r',       // registers
+      'q',
+    ].join('; ');
+
+    onLog?.(`> Running CDB: "${cdbPath}"`);
+    onLog?.(`  -z "${dumpPath}"`);
+    onLog?.(`  -y "${symPath}"`);
+
+    const proc = spawn(cdbPath, ['-z', dumpPath, '-c', commands], {
+      windowsHide: true,
+    });
+
+    const outputLines: string[] = [];
+
+    const handleChunk = (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trimEnd();
+        if (trimmed) {
+          outputLines.push(trimmed);
+          onLog?.(trimmed);
+        }
+      }
+    };
+
+    proc.stdout.on('data', handleChunk);
+    proc.stderr.on('data', handleChunk);
+
+    proc.on('close', () => resolve(outputLines.join('\n')));
+    proc.on('error', reject);
+
+    // Safety timeout: 3 minutes
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error('CDB analysis timed out after 3 minutes'));
+    }, 180000);
+    proc.on('close', () => clearTimeout(timer));
+  });
 }
 
 // ── macOS: lldb analysis ──
@@ -237,11 +300,15 @@ function analyzeDumpMacos(dumpPath: string): string {
   }
 }
 
-export function analyzeDump(dumpPath: string): string {
+export function analyzeDump(
+  dumpPath: string,
+  pdbDir: string,
+  onLog?: (line: string) => void
+): Promise<string> {
   const platform = getCurrentPlatform();
   return platform === 'macos'
-    ? analyzeDumpMacos(dumpPath)
-    : analyzeDumpWindows(dumpPath);
+    ? Promise.resolve(analyzeDumpMacos(dumpPath))
+    : analyzeDumpWindows(dumpPath, pdbDir, onLog);
 }
 
 // ── Windows CDB output parser ──

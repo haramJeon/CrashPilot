@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
-import { downloadPdbFiles, downloadDump } from '../services/dump';
+import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
 import { checkoutBranch, createFixBranch, applyFixes, commitAndPush, getSourceFiles, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord } from './crash';
@@ -70,14 +70,15 @@ export function pipelineRouter(io: SocketIOServer): Router {
     const isCancelled = () => cancelFlags.get(crashId) === true;
 
     const steps: PipelineStep[] = [
-      { name: 'Load Stack Trace', status: 'pending' },
-      { name: 'Download PDB Files', status: 'pending' },
-      { name: 'Download Dump', status: 'pending' },
-      { name: 'Clone / Pull', status: 'pending' },
-      { name: 'Init Submodule', status: 'pending' },
-      { name: 'AI Analysis & Fix', status: 'pending' },
-      { name: 'Apply Fix & Commit', status: 'pending' },
-      { name: 'Create PR', status: 'pending' },
+      { name: 'Load Stack Trace', status: 'pending' },   // 0
+      { name: 'Download PDB Files', status: 'pending' }, // 1
+      { name: 'Download Dump', status: 'pending' },      // 2
+      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3
+      { name: 'Clone / Pull', status: 'pending' },       // 4
+      { name: 'Init Submodule', status: 'pending' },     // 5
+      { name: 'AI Analysis & Fix', status: 'pending' },  // 6
+      { name: 'Apply Fix & Commit', status: 'pending' }, // 7
+      { name: 'Create PR', status: 'pending' },          // 8
     ];
 
     res.json({ message: 'Pipeline started', crashId });
@@ -130,48 +131,77 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 4: Clone or pull (skip if already cloned)
+      // Step 4: Analyze dump with CDB
+      steps[3].status = 'running';
+      emitSteps(crashId, steps);
+      let cdbCallStack = callStack;        // fallback: use API stack trace
+      let cdbExceptionType = exceptionType;
+      let cdbFaultingModule = detail.stackTraces[0]?.dllName || 'Unknown';
+      let cdbOutput = '';
+      try {
+        cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(3, line));
+        const parsed = extractCallStack(cdbOutput);
+        if (parsed.callStack) {
+          cdbCallStack = parsed.callStack;
+          cdbFaultingModule = parsed.faultingModule || cdbFaultingModule;
+          if (parsed.exceptionType && parsed.exceptionType !== 'Unknown') {
+            cdbExceptionType = parsed.exceptionType;
+          }
+        }
+        steps[3].status = 'done';
+        steps[3].message = `CDB analysis complete — ${cdbOutput.split('\n').length} lines`;
+      } catch (cdbErr: any) {
+        // CDB 실패 시 경고만 표시하고 계속 진행 (API 스택 트레이스로 fallback)
+        steps[3].status = 'done';
+        steps[3].message = `CDB skipped: ${cdbErr.message.split('\n')[0]}`;
+        log(3, `Warning: CDB failed — ${cdbErr.message}`);
+        log(3, 'Falling back to API stack trace for AI analysis');
+      }
+      emitSteps(crashId, steps);
+      throwIfCancelled();
+
+      // Step 5: Clone or pull (skip if already cloned)
       const repoDir = getRepoDirForBranch(releaseBranch);
       const alreadyCloned = fs.existsSync(path.join(repoDir, '.git'));
 
       if (alreadyCloned) {
-        steps[3].status = 'done';
-        steps[3].message = `Already cloned: ${repoDir}`;
-        log(3, `Skipped — repo already exists at ${repoDir}`);
+        steps[4].status = 'done';
+        steps[4].message = `Already cloned: ${repoDir}`;
+        log(4, `Skipped — repo already exists at ${repoDir}`);
         emitSteps(crashId, steps);
       } else {
-        steps[3].status = 'running';
+        steps[4].status = 'running';
         emitSteps(crashId, steps);
-        await checkoutBranch(releaseBranch, (line) => log(3, line));
-        steps[3].status = 'done';
-        steps[3].message = `${releaseBranch} → ${repoDir}`;
+        await checkoutBranch(releaseBranch, (line) => log(4, line));
+        steps[4].status = 'done';
+        steps[4].message = `${releaseBranch} → ${repoDir}`;
         emitSteps(crashId, steps);
       }
       throwIfCancelled();
 
-      // Step 5: Init submodules (skip if no .gitmodules or already initialized)
+      // Step 6: Init submodules (skip if no .gitmodules or already initialized)
       const gitmodulesPath = path.join(repoDir, '.gitmodules');
       const modulesDir = path.join(repoDir, '.git', 'modules');
       const hasSubmodules = fs.existsSync(gitmodulesPath);
       const alreadyInit = hasSubmodules && fs.existsSync(modulesDir) && fs.readdirSync(modulesDir).length > 0;
 
       if (!hasSubmodules || alreadyInit) {
-        steps[4].status = 'done';
-        steps[4].message = hasSubmodules ? 'Already initialized' : 'No submodules';
-        log(4, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
+        steps[5].status = 'done';
+        steps[5].message = hasSubmodules ? 'Already initialized' : 'No submodules';
+        log(5, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
         emitSteps(crashId, steps);
       } else {
-        steps[4].status = 'running';
+        steps[5].status = 'running';
         emitSteps(crashId, steps);
-        await initSubmodules(repoDir, (line) => log(4, line));
-        steps[4].status = 'done';
-        steps[4].message = 'git submodule update --init done';
+        await initSubmodules(repoDir, (line) => log(5, line));
+        steps[5].status = 'done';
+        steps[5].message = 'git submodule update --init done';
         emitSteps(crashId, steps);
       }
       throwIfCancelled();
 
-      // Step 6: Claude AI analysis
-      steps[5].status = 'running';
+      // Step 7: Claude AI analysis (uses CDB output if available)
+      steps[6].status = 'running';
       emitSteps(crashId, steps);
 
       const dllNames = detail.stackTraces
@@ -182,42 +212,44 @@ export function pipelineRouter(io: SocketIOServer): Router {
       const sourceFiles = await getSourceFiles(repoDir, uniqueDlls);
 
       const aiResult = await analyzeAndFix({
-        callStack,
-        exceptionType,
-        exceptionMessage: `Exception: ${exceptionType}\nVersion: ${detail.swVersion}\nRegion: ${detail.region || 'N/A'}`,
-        faultingModule: detail.stackTraces[0]?.dllName || 'Unknown',
+        callStack: cdbCallStack,
+        exceptionType: cdbExceptionType,
+        exceptionMessage: cdbOutput
+          ? `[CDB Analysis]\n${cdbOutput.slice(0, 8000)}`
+          : `Exception: ${cdbExceptionType}\nVersion: ${detail.swVersion}\nRegion: ${detail.region || 'N/A'}`,
+        faultingModule: cdbFaultingModule,
         sourceFiles,
       });
 
-      steps[5].status = 'done';
-      steps[5].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
+      steps[6].status = 'done';
+      steps[6].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 7: Apply fix & commit
-      steps[6].status = 'running';
+      // Step 8: Apply fix & commit
+      steps[7].status = 'running';
       emitSteps(crashId, steps);
 
-      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(6, line));
-      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(6, line));
+      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
+      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(7, line));
       await commitAndPush(
         repoDir,
         aiResult.fixedFiles,
-        `[CrashPilot] Fix ${exceptionType} in ${detail.stackTraces[0]?.dllName || 'unknown'}\n\nReport #${crash.id} - v${detail.swVersion}\n\n${aiResult.suggestedFix}`,
-        (line) => log(6, line)
+        `[CrashPilot] Fix ${cdbExceptionType} in ${cdbFaultingModule}\n\nReport #${crash.id} - v${detail.swVersion}\n\n${aiResult.suggestedFix}`,
+        (line) => log(7, line)
       );
 
-      steps[6].status = 'done';
-      steps[6].message = `Pushed to ${fixBranch}`;
+      steps[7].status = 'done';
+      steps[7].message = `Pushed to ${fixBranch}`;
       emitSteps(crashId, steps);
 
-      // Step 8: Create PR
-      steps[6].status = 'running';
+      // Step 9: Create PR
+      steps[8].status = 'running';
       emitSteps(crashId, steps);
 
       const analysis: CrashAnalysis = {
-        callStack,
-        exceptionType,
+        callStack: cdbCallStack,
+        exceptionType: cdbExceptionType,
         rootCause: aiResult.rootCause,
         suggestedFix: aiResult.suggestedFix,
         fixedFiles: aiResult.fixedFiles,
@@ -231,8 +263,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
       });
 
       analysis.prUrl = prUrl;
-      steps[6].status = 'done';
-      steps[6].message = prUrl;
+      steps[8].status = 'done';
+      steps[8].message = prUrl;
       emitSteps(crashId, steps);
 
       saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis });

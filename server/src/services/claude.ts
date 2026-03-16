@@ -1,10 +1,34 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { loadConfig } from './config';
+import { spawn } from 'child_process';
 import { FixedFile } from '../types';
 
-function getClient(): Anthropic {
-  const config = loadConfig();
-  return new Anthropic({ apiKey: config.claude.apiKey });
+function runClaude(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('claude', ['--print'], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    proc.stdin.write(prompt, 'utf-8');
+    proc.stdin.end();
+
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    proc.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    proc.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error('Claude CLI timed out after 10 minutes'));
+    }, 600000);
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(Buffer.concat(out).toString('utf-8'));
+      } else {
+        reject(new Error(Buffer.concat(err).toString('utf-8') || `claude exited with code ${code}`));
+      }
+    });
+
+    proc.on('error', (e) => { clearTimeout(timer); reject(e); });
+  });
 }
 
 export async function analyzeAndFix(params: {
@@ -18,19 +42,11 @@ export async function analyzeAndFix(params: {
   suggestedFix: string;
   fixedFiles: FixedFile[];
 }> {
-  const client = getClient();
-
   const sourceContext = params.sourceFiles
     .map((f) => `--- ${f.path} ---\n${f.content}`)
     .join('\n\n');
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 8192,
-    messages: [
-      {
-        role: 'user',
-        content: `You are a crash dump analysis expert. Analyze this crash and provide a fix.
+  const prompt = `You are a crash dump analysis expert. Analyze this crash and provide a fix.
 
 ## Exception Info
 - Type: ${params.exceptionType}
@@ -60,15 +76,12 @@ Respond in this exact JSON format:
   ]
 }
 
-IMPORTANT: Return ONLY valid JSON, no markdown code blocks.`,
-      },
-    ],
-  });
+IMPORTANT: Return ONLY valid JSON, no markdown code blocks.`;
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  const text = await runClaude(prompt);
 
   try {
-    const result = JSON.parse(text);
+    const result = JSON.parse(text.trim());
     const fixedFiles: FixedFile[] = (result.fixedFiles || []).map((f: any) => {
       const original = params.sourceFiles.find((s) => s.path === f.path)?.content || '';
       return {

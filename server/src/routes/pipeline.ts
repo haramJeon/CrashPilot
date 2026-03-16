@@ -44,6 +44,7 @@ interface AIWaitState {
   cdbExceptionType: string;
   cdbFaultingModule: string;
   cdbOutput: string;
+  cdbTxtPath: string;
   repoDir: string;
   releaseBranch: string;
   dllNames: string[];
@@ -86,7 +87,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     aiWaitStates.delete(crashId);
     res.json({ message: 'AI analysis started', crashId });
 
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, repoDir, releaseBranch, dllNames } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, repoDir, releaseBranch, dllNames } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -113,7 +114,9 @@ export function pipelineRouter(io: SocketIOServer): Router {
           ? `[CDB Analysis]\n${cdbOutput.slice(0, 8000)}`
           : `Exception: ${cdbExceptionType}\nVersion: ${swVersion}`,
         faultingModule: cdbFaultingModule,
+        cdbTxtPath,
         sourceFiles,
+        onLog: (line) => log(6, line),
       });
 
       steps[6].status = 'done';
@@ -298,9 +301,10 @@ export function pipelineRouter(io: SocketIOServer): Router {
       let cdbExceptionType = exceptionType;
       let cdbFaultingModule = detail.stackTraces[0]?.dllName || 'Unknown';
       let cdbOutput = '';
+      let cdbTxtPath = '';
       try {
         const dmpBase = path.basename(dmpPath, '.dmp');
-        const cdbTxtPath = path.join(pdbDir, `${dmpBase}_cdb.txt`);
+        cdbTxtPath = path.join(pdbDir, `${dmpBase}_cdb.txt`);
         if (fs.existsSync(cdbTxtPath)) {
           cdbOutput = fs.readFileSync(cdbTxtPath, 'utf-8');
           log(5, `Using cached CDB output: ${cdbTxtPath}`);
@@ -346,6 +350,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         cdbExceptionType,
         cdbFaultingModule,
         cdbOutput,
+        cdbTxtPath,
         repoDir,
         releaseBranch,
         dllNames: uniqueDlls,

@@ -36,12 +36,24 @@ export async function analyzeAndFix(params: {
   exceptionType: string;
   exceptionMessage: string;
   faultingModule: string;
+  cdbTxtPath?: string;
   sourceFiles: { path: string; content: string }[];
+  onLog?: (line: string) => void;
 }): Promise<{
   rootCause: string;
   suggestedFix: string;
   fixedFiles: FixedFile[];
 }> {
+  const { onLog } = params;
+
+  // Log all inputs being sent to Claude
+  onLog?.(`[AI] Exception Type   : ${params.exceptionType}`);
+  onLog?.(`[AI] Faulting Module  : ${params.faultingModule}`);
+  onLog?.(`[AI] CDB output file  : ${params.cdbTxtPath || '(none)'}`);
+  onLog?.(`[AI] Call stack lines : ${params.callStack.split('\n').filter(Boolean).length}`);
+  onLog?.(`[AI] Source files     : ${params.sourceFiles.length} file(s) — ${params.sourceFiles.map(f => f.path).join(', ') || '(none)'}`);
+  onLog?.(`[AI] Sending prompt to claude CLI...`);
+
   const sourceContext = params.sourceFiles
     .map((f) => `--- ${f.path} ---\n${f.content}`)
     .join('\n\n');
@@ -52,12 +64,13 @@ export async function analyzeAndFix(params: {
 - Type: ${params.exceptionType}
 - Message: ${params.exceptionMessage}
 - Faulting Module: ${params.faultingModule}
+${params.cdbTxtPath ? `- CDB Output File: ${params.cdbTxtPath}` : ''}
 
 ## Call Stack
 ${params.callStack}
 
 ## Related Source Files
-${sourceContext}
+${sourceContext || '(no source files found)'}
 
 ## Instructions
 1. Analyze the root cause of this crash
@@ -79,6 +92,7 @@ Respond in this exact JSON format:
 IMPORTANT: Return ONLY valid JSON, no markdown code blocks.`;
 
   const text = await runClaude(prompt);
+  onLog?.(`[AI] Response received — ${text.length} chars`);
 
   try {
     const result = JSON.parse(text.trim());
@@ -92,12 +106,15 @@ IMPORTANT: Return ONLY valid JSON, no markdown code blocks.`;
       };
     });
 
+    onLog?.(`[AI] Parsed OK — rootCause: ${result.rootCause?.slice(0, 80)}...`);
+    onLog?.(`[AI] fixedFiles: ${fixedFiles.length} file(s)`);
     return {
       rootCause: result.rootCause || 'Analysis failed',
       suggestedFix: result.suggestedFix || '',
       fixedFiles,
     };
   } catch {
+    onLog?.(`[AI] JSON parse failed — raw response: ${text.slice(0, 200)}`);
     return {
       rootCause: text,
       suggestedFix: 'Could not parse structured response',

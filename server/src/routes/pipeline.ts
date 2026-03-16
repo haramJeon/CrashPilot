@@ -110,9 +110,6 @@ export function pipelineRouter(io: SocketIOServer): Router {
       const aiResult = await analyzeAndFix({
         callStack: cdbCallStack,
         exceptionType: cdbExceptionType,
-        exceptionMessage: cdbOutput
-          ? `[CDB Analysis]\n${cdbOutput.slice(0, 8000)}`
-          : `Exception: ${cdbExceptionType}\nVersion: ${swVersion}`,
         faultingModule: cdbFaultingModule,
         cdbTxtPath,
         sourceFiles,

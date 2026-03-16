@@ -92,7 +92,7 @@ export default function CrashDetail() {
   };
 
   const isRunning = steps.some((s) => s.status === 'running');
-  const isAwaitingAI = steps.some((s) => s.name === 'AI Analysis & Fix' && s.status === 'awaiting');
+  const isAwaitingAI = steps.some((s) => s.status === 'awaiting');
 
   const stopPipeline = async () => {
     if (!crash) return;

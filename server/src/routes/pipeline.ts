@@ -45,6 +45,8 @@ interface AIWaitState {
   cdbFaultingModule: string;
   cdbOutput: string;
   cdbTxtPath: string;
+  pdbDir: string;
+  dmpPath: string;
   releaseBranch: string;
 }
 const aiWaitStates = new Map<string, AIWaitState>();
@@ -101,7 +103,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     aiWaitStates.delete(crashId);
     res.json({ message: 'AI analysis started', crashId });
 
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, releaseBranch } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, pdbDir, dmpPath, releaseBranch } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -114,47 +116,52 @@ export function pipelineRouter(io: SocketIOServer): Router {
     };
 
     try {
-      // Step 4: Clone or pull
+      // Step 4 (gate): mark done immediately — user confirmed by clicking
+      steps[4].status = 'done';
+      steps[4].message = 'Confirmed';
+      emitSteps(crashId, steps);
+
+      // Step 5: Clone or pull
       const repoDir = getRepoDirForBranch(releaseBranch);
       const alreadyCloned = fs.existsSync(path.join(repoDir, '.git'));
 
       if (alreadyCloned) {
-        steps[4].status = 'done';
-        steps[4].message = `Already cloned: ${repoDir}`;
-        log(4, `Skipped — repo already exists at ${repoDir}`);
+        steps[5].status = 'done';
+        steps[5].message = `Already cloned: ${repoDir}`;
+        log(5, `Skipped — repo already exists at ${repoDir}`);
       } else {
-        steps[4].status = 'running';
+        steps[5].status = 'running';
         emitSteps(crashId, steps);
-        await checkoutBranch(releaseBranch, (line) => log(4, line));
-        steps[4].status = 'done';
-        steps[4].message = `${releaseBranch} → ${repoDir}`;
+        await checkoutBranch(releaseBranch, (line) => log(5, line));
+        steps[5].status = 'done';
+        steps[5].message = `${releaseBranch} → ${repoDir}`;
       }
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 5: Init submodules
+      // Step 6: Init submodules
       const gitmodulesPath = path.join(repoDir, '.gitmodules');
       const modulesDir = path.join(repoDir, '.git', 'modules');
       const hasSubmodules = fs.existsSync(gitmodulesPath);
       const alreadyInit = hasSubmodules && fs.existsSync(modulesDir) && fs.readdirSync(modulesDir).length > 0;
 
       if (!hasSubmodules || alreadyInit) {
-        steps[5].status = 'done';
-        steps[5].message = hasSubmodules ? 'Already initialized' : 'No submodules';
-        log(5, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
+        steps[6].status = 'done';
+        steps[6].message = hasSubmodules ? 'Already initialized' : 'No submodules';
+        log(6, hasSubmodules ? 'Skipped — submodules already initialized' : 'Skipped — no submodules in repo');
       } else {
-        steps[5].status = 'running';
+        steps[6].status = 'running';
         emitSteps(crashId, steps);
-        await initSubmodules(repoDir, (line) => log(5, line));
-        steps[5].status = 'done';
-        steps[5].message = 'git submodule update --init done';
+        await initSubmodules(repoDir, (line) => log(6, line));
+        steps[6].status = 'done';
+        steps[6].message = 'git submodule update --init done';
       }
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 6: Claude AI analysis
-      steps[6].status = 'running';
-      steps[6].message = undefined;
+      // Step 7: Claude AI analysis
+      steps[7].status = 'running';
+      steps[7].message = undefined;
       emitSteps(crashId, steps);
 
       const aiResult = await analyzeAndFix({
@@ -162,7 +169,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         faultingModule: cdbFaultingModule,
         cdbTxtPath,
         repoDir,
-        onLog: (line) => log(6, line),
+        onLog: (line) => log(7, line),
         shouldAbort: isCancelled,
       });
 
@@ -170,30 +177,30 @@ export function pipelineRouter(io: SocketIOServer): Router {
         throw new Error(`AI analysis did not produce any file fixes.\nRoot cause: ${aiResult.rootCause}`);
       }
 
-      steps[6].status = 'done';
-      steps[6].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
+      steps[7].status = 'done';
+      steps[7].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 7: Apply fix & commit
-      steps[7].status = 'running';
+      // Step 8: Apply fix & commit
+      steps[8].status = 'running';
       emitSteps(crashId, steps);
 
-      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
-      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(7, line));
+      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(8, line));
+      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(8, line));
       await commitAndPush(
         repoDir,
         aiResult.fixedFiles,
         `[CrashPilot] Fix ${cdbExceptionType} in ${cdbFaultingModule}\n\nReport #${crash.id} - v${swVersion}\n\n${aiResult.suggestedFix}`,
-        (line) => log(7, line)
+        (line) => log(8, line)
       );
 
-      steps[7].status = 'done';
-      steps[7].message = `Pushed to ${fixBranch}`;
+      steps[8].status = 'done';
+      steps[8].message = `Pushed to ${fixBranch}`;
       emitSteps(crashId, steps);
 
-      // Step 8: Create PR
-      steps[8].status = 'running';
+      // Step 9: Create PR
+      steps[9].status = 'running';
       emitSteps(crashId, steps);
 
       const analysis: CrashAnalysis = {
@@ -212,8 +219,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
       });
 
       analysis.prUrl = prUrl;
-      steps[8].status = 'done';
-      steps[8].message = prUrl;
+      steps[9].status = 'done';
+      steps[9].message = prUrl;
       emitSteps(crashId, steps);
 
       saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis });
@@ -244,15 +251,16 @@ export function pipelineRouter(io: SocketIOServer): Router {
     const isCancelled = () => cancelFlags.get(crashId) === true;
 
     const steps: PipelineStep[] = [
-      { name: 'Load Stack Trace',   status: 'pending' }, // 0
-      { name: 'Download PDB Files', status: 'pending' }, // 1
-      { name: 'Download Dump',      status: 'pending' }, // 2
-      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3  ← moved up
-      { name: 'Clone / Pull',       status: 'pending' }, // 4  ← runs after AI trigger
-      { name: 'Init Submodule',     status: 'pending' }, // 5  ← runs after AI trigger
-      { name: 'AI Analysis & Fix',  status: 'pending' }, // 6
-      { name: 'Apply Fix & Commit', status: 'pending' }, // 7
-      { name: 'Create PR',          status: 'pending' }, // 8
+      { name: 'Load Stack Trace',   status: 'pending' }, // 0  auto
+      { name: 'Download PDB Files', status: 'pending' }, // 1  auto
+      { name: 'Download Dump',      status: 'pending' }, // 2  auto
+      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3  auto
+      { name: 'Run by AI',          status: 'pending' }, // 4  awaiting (gate)
+      { name: 'Clone / Pull',       status: 'pending' }, // 5  after click
+      { name: 'Init Submodule',     status: 'pending' }, // 6  after click
+      { name: 'AI Analysis & Fix',  status: 'pending' }, // 7  after click
+      { name: 'Apply Fix & Commit', status: 'pending' }, // 8  after click
+      { name: 'Create PR',          status: 'pending' }, // 9  after click
     ];
 
     res.json({ message: 'Pipeline started', crashId });
@@ -341,8 +349,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
       throwIfCancelled();
 
       // Pause — wait for manual AI trigger
-      steps[6].status = 'awaiting';
-      steps[6].message = 'Click "Run by AI" to start';
+      steps[4].status = 'awaiting';
+      steps[4].message = 'Click "Run by AI" to continue';
       emitSteps(crashId, steps);
 
       aiWaitStates.set(crashId, {
@@ -355,6 +363,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
         cdbFaultingModule,
         cdbOutput,
         cdbTxtPath,
+        pdbDir,
+        dmpPath,
         releaseBranch,
       });
 

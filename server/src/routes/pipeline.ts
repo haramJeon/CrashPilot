@@ -119,6 +119,10 @@ export function pipelineRouter(io: SocketIOServer): Router {
         onLog: (line) => log(6, line),
       });
 
+      if (aiResult.fixedFiles.length === 0) {
+        throw new Error(`AI analysis did not produce any file fixes.\nRoot cause: ${aiResult.rootCause}`);
+      }
+
       steps[6].status = 'done';
       steps[6].message = `Root cause identified - ${aiResult.fixedFiles.length} file(s) to fix`;
       emitSteps(crashId, steps);

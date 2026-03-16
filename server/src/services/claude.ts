@@ -2,7 +2,13 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import { FixedFile } from '../types';
 
-function runClaude(prompt: string, cwd?: string, allowedDirs?: string[], onLog?: (line: string) => void): Promise<string> {
+function runClaude(
+  prompt: string,
+  cwd?: string,
+  allowedDirs?: string[],
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = ['--print'];
     for (const dir of allowedDirs ?? []) {
@@ -43,8 +49,19 @@ function runClaude(prompt: string, cwd?: string, allowedDirs?: string[], onLog?:
       reject(new Error('Claude CLI timed out after 10 minutes'));
     }, 600000);
 
+    const abortPoller = shouldAbort
+      ? setInterval(() => {
+          if (shouldAbort()) {
+            clearInterval(abortPoller);
+            proc.kill();
+            reject(new Error('__CANCELLED__'));
+          }
+        }, 1000)
+      : undefined;
+
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (abortPoller) clearInterval(abortPoller);
       if (outRemainder) { outLines.push(outRemainder); onLog?.(outRemainder); }
       if (errRemainder) { errLines.push(errRemainder); onLog?.(`[stderr] ${errRemainder}`); }
       if (code === 0) {
@@ -54,7 +71,7 @@ function runClaude(prompt: string, cwd?: string, allowedDirs?: string[], onLog?:
       }
     });
 
-    proc.on('error', (e) => { clearTimeout(timer); reject(e); });
+    proc.on('error', (e) => { clearTimeout(timer); if (abortPoller) clearInterval(abortPoller); reject(e); });
   });
 }
 
@@ -64,6 +81,7 @@ export async function analyzeAndFix(params: {
   cdbTxtPath?: string;
   repoDir?: string;
   onLog?: (line: string) => void;
+  shouldAbort?: () => boolean;
 }): Promise<{
   rootCause: string;
   suggestedFix: string;
@@ -98,7 +116,7 @@ Reply with ONLY this JSON (no markdown):
 
   const allowedDirs = params.cdbTxtPath ? [path.dirname(params.cdbTxtPath)] : [];
 
-  const text = await runClaude(prompt, params.repoDir, allowedDirs, onLog);
+  const text = await runClaude(prompt, params.repoDir, allowedDirs, onLog, params.shouldAbort);
   onLog?.(`[AI] Response received — ${text.length} chars`);
 
   try {

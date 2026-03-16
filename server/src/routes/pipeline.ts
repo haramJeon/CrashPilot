@@ -70,6 +70,22 @@ export function pipelineRouter(io: SocketIOServer): Router {
 
   router.post('/cancel/:crashId', (req, res) => {
     const crashId = req.params.crashId;
+
+    // Cancel while waiting for manual AI trigger
+    if (aiWaitStates.has(crashId)) {
+      const state = aiWaitStates.get(crashId)!;
+      aiWaitStates.delete(crashId);
+      const awaitingIdx = state.steps.findIndex((s) => s.status === 'awaiting');
+      if (awaitingIdx >= 0) {
+        state.steps[awaitingIdx].status = 'error';
+        state.steps[awaitingIdx].message = 'Cancelled by user';
+      }
+      emitSteps(crashId, state.steps);
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: state.releaseBranch, steps: [...state.steps], errorMessage: 'Cancelled by user' });
+      io.emit('pipeline:cancelled', { crashId });
+      return res.json({ message: 'Cancel requested' });
+    }
+
     if (cancelFlags.has(crashId)) {
       cancelFlags.set(crashId, true);
       res.json({ message: 'Cancel requested' });
@@ -110,6 +126,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         cdbTxtPath,
         repoDir,
         onLog: (line) => log(6, line),
+        shouldAbort: isCancelled,
       });
 
       if (aiResult.fixedFiles.length === 0) {

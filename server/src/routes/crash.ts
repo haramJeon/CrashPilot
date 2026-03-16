@@ -12,6 +12,10 @@ export function updateCrashRecord(id: number, updates: Partial<CrashReport>): vo
   if (idx >= 0) crashReports[idx] = { ...crashReports[idx], ...updates };
 }
 
+export function getCrashRecord(id: number): CrashReport | undefined {
+  return crashReports.find((c) => c.id === id);
+}
+
 export function crashRouter(io: SocketIOServer): Router {
   const router = Router();
 

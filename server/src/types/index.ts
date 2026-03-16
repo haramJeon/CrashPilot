@@ -111,6 +111,17 @@ export interface PipelineRunHistory {
   steps: PipelineStep[];
   analysis?: CrashAnalysis;
   errorMessage?: string;
+  pipelineState?: PipelineState;
+}
+
+export interface PipelineState {
+  pdbDir: string;
+  dmpPath: string;
+  cdbTxtPath: string;
+  cdbCallStack: string;
+  cdbExceptionType: string;
+  cdbFaultingModule: string;
+  releaseBranch: string;
 }
 
 // Raw types from crashReportOrganizer API

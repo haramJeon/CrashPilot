@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+server/dist/
+
+# Lock files (large, rarely useful)
+package-lock.json
+client/package-lock.json
+server/package-lock.json
+
+# Images and media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.webp
+*.mp4
+*.mp3
+*.wav
+
+# Fonts
+*.ttf
+*.woff
+*.woff2
+*.eot
+
+# Temp and cache
+.cache/
+*.tmp
+
+# IDE
+.vscode/
+.idea/

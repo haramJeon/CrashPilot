@@ -104,6 +104,7 @@ export interface PipelineRunHistory {
   steps: PipelineStep[];
   analysis?: CrashAnalysis;
   errorMessage?: string;
+  pipelineState?: Record<string, string>;
 }
 
 export interface ApiSoftware {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PipelineStep } from '../types';
-import { CheckCircle, Circle, Loader, XCircle, ChevronDown, ChevronRight, Bot } from 'lucide-react';
+import { CheckCircle, Circle, Loader, XCircle, ChevronDown, ChevronRight, Bot, RotateCcw } from 'lucide-react';
 import './PipelineView.css';
 
 interface Props {
   steps: PipelineStep[];
   onRunAI?: () => void;
+  onRetry?: (stepIdx: number) => void;
 }
 
 const StepIcon = ({ status }: { status: PipelineStep['status'] }) => {
@@ -60,7 +61,8 @@ function StepLogs({ step }: { step: PipelineStep }) {
   );
 }
 
-export default function PipelineView({ steps, onRunAI }: Props) {
+export default function PipelineView({ steps, onRunAI, onRetry }: Props) {
+  const isRunning = steps.some((s) => s.status === 'running' || s.status === 'awaiting');
   return (
     <div className="pipeline">
       {steps.map((step, idx) => (
@@ -72,6 +74,11 @@ export default function PipelineView({ steps, onRunAI }: Props) {
               <button className="btn-run-ai" onClick={onRunAI}>
                 <Bot size={13} />
                 Run by AI
+              </button>
+            )}
+            {(step.status === 'done' || step.status === 'error') && onRetry && !isRunning && (
+              <button className="btn-retry-step" onClick={() => onRetry(idx)} title="Retry from this step">
+                <RotateCcw size={12} />
               </button>
             )}
           </div>

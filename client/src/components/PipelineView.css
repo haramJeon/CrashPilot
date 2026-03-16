@@ -176,3 +176,26 @@
   0%   { background-position: 100% 0; }
   100% { background-position: -100% 0; }
 }
+
+.btn-retry-step {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 5px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.pipeline-step:hover .btn-retry-step {
+  opacity: 1;
+}
+
+.btn-retry-step:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

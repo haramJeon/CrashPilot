@@ -5,10 +5,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, applyFixes, commitAndPush, initSubmodules, getRepoDirForBranch } from '../services/git';
+import { checkoutBranch, createFixBranch, commitAndPush, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
-import { updateCrashRecord } from './crash';
-import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory } from '../types';
+import { updateCrashRecord, getCrashRecord } from './crash';
+import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory, PipelineState } from '../types';
 
 const HISTORY_DIR = path.join(__dirname, '../../../data/pipeline-runs');
 
@@ -48,6 +48,7 @@ interface AIWaitState {
   pdbDir: string;
   dmpPath: string;
   releaseBranch: string;
+  pipelineState: PipelineState;
 }
 const aiWaitStates = new Map<string, AIWaitState>();
 
@@ -82,7 +83,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         state.steps[awaitingIdx].message = 'Cancelled by user';
       }
       emitSteps(crashId, state.steps);
-      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: state.releaseBranch, steps: [...state.steps], errorMessage: 'Cancelled by user' });
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: state.releaseBranch, steps: [...state.steps], errorMessage: 'Cancelled by user', pipelineState: state.pipelineState });
       io.emit('pipeline:cancelled', { crashId });
       return res.json({ message: 'Cancel requested' });
     }
@@ -103,7 +104,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     aiWaitStates.delete(crashId);
     res.json({ message: 'AI analysis started', crashId });
 
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, pdbDir, dmpPath, releaseBranch } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, pdbDir, dmpPath, releaseBranch, pipelineState } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -159,10 +160,13 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 7: Claude AI analysis
+      // Step 7: Create fix branch + Claude AI analysis
+      // Fix branch is created first (resets to clean base), then Claude writes directly into the repo
       steps[7].status = 'running';
       steps[7].message = undefined;
       emitSteps(crashId, steps);
+
+      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
 
       const aiResult = await analyzeAndFix({
         exceptionType: cdbExceptionType,
@@ -182,12 +186,10 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 8: Apply fix & commit
+      // Step 8: Commit & push (Claude already wrote the files — just commit)
       steps[8].status = 'running';
       emitSteps(crashId, steps);
 
-      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(8, line));
-      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(8, line));
       await commitAndPush(
         repoDir,
         aiResult.fixedFiles,
@@ -223,19 +225,19 @@ export function pipelineRouter(io: SocketIOServer): Router {
       steps[9].message = prUrl;
       emitSteps(crashId, steps);
 
-      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis });
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'completed', releaseTag: releaseBranch, steps: [...steps], analysis, pipelineState });
       io.emit('pipeline:complete', { crashId, analysis });
     } catch (error: any) {
       const runningIdx = steps.findIndex((s) => s.status === 'running');
       if (error.message === '__CANCELLED__') {
         if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = 'Cancelled by user'; }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user' });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user', pipelineState });
         io.emit('pipeline:cancelled', { crashId });
       } else {
         if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = error.message; }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message, pipelineState });
         io.emit('pipeline:error', { crashId, error: error.message });
       }
     } finally {
@@ -348,6 +350,17 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
+      // Build pipeline state snapshot for history / retry
+      const pipelineState: PipelineState = {
+        pdbDir,
+        dmpPath,
+        cdbTxtPath,
+        cdbCallStack,
+        cdbExceptionType,
+        cdbFaultingModule,
+        releaseBranch,
+      };
+
       // Pause — wait for manual AI trigger
       steps[4].status = 'awaiting';
       steps[4].message = 'Click "Run by AI" to continue';
@@ -366,18 +379,21 @@ export function pipelineRouter(io: SocketIOServer): Router {
         pdbDir,
         dmpPath,
         releaseBranch,
+        pipelineState,
       });
 
       io.emit('pipeline:awaiting_ai', { crashId });
     } catch (error: any) {
       const runningIdx = steps.findIndex((s) => s.status === 'running');
+      // pipelineState may be incomplete at this point — save what we have (undefined is fine for the type)
+      const partialState: PipelineState | undefined = undefined;
       if (error.message === '__CANCELLED__') {
         if (runningIdx >= 0) {
           steps[runningIdx].status = 'error';
           steps[runningIdx].message = 'Cancelled by user';
         }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user' });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user', pipelineState: partialState });
         io.emit('pipeline:cancelled', { crashId });
       } else {
         if (runningIdx >= 0) {
@@ -385,12 +401,67 @@ export function pipelineRouter(io: SocketIOServer): Router {
           steps[runningIdx].message = error.message;
         }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message, pipelineState: partialState });
         io.emit('pipeline:error', { crashId, error: error.message });
       }
     } finally {
       cancelFlags.delete(crashId);
     }
+  });
+
+  router.post('/retry/:crashId/:fromStep', async (req, res) => {
+    const crashId = req.params.crashId;
+    const fromStep = parseInt(req.params.fromStep, 10);
+
+    if (isNaN(fromStep) || fromStep < 0 || fromStep > 9) {
+      return res.status(400).json({ error: 'Invalid fromStep' });
+    }
+
+    const history = loadHistory(crashId);
+    if (!history) return res.status(404).json({ error: 'No history found for this crash' });
+
+    if (fromStep <= 4) {
+      // Re-run from beginning
+      aiWaitStates.delete(crashId);
+      cancelFlags.delete(crashId);
+      return res.json({ action: 'rerun' });
+    }
+
+    // fromStep 5-9: restore aiWaitState from history pipelineState
+    const ps = history.pipelineState;
+    if (!ps) return res.status(400).json({ error: 'No saved pipeline state in history' });
+
+    // Reset steps from fromStep onwards to 'pending'
+    const steps: PipelineStep[] = history.steps.map((s, i) => {
+      if (i >= fromStep) return { name: s.name, status: 'pending' };
+      return { ...s };
+    });
+    // Ensure gate step 4 is marked done
+    if (steps[4]) steps[4] = { name: steps[4].name, status: 'done', message: 'Confirmed' };
+
+    const crash = getCrashRecord(Number(crashId));
+    if (!crash) return res.status(404).json({ error: 'Crash record not found' });
+
+    aiWaitStates.set(crashId, {
+      steps,
+      crash,
+      subject: crash.subject || '',
+      swVersion: crash.swVersion || '',
+      cdbCallStack: ps.cdbCallStack,
+      cdbExceptionType: ps.cdbExceptionType,
+      cdbFaultingModule: ps.cdbFaultingModule,
+      cdbOutput: '',
+      cdbTxtPath: ps.cdbTxtPath,
+      pdbDir: ps.pdbDir,
+      dmpPath: ps.dmpPath,
+      releaseBranch: ps.releaseBranch,
+      pipelineState: ps,
+    });
+
+    emitSteps(crashId, steps);
+    io.emit('pipeline:awaiting_ai', { crashId });
+
+    res.json({ action: 'restored', fromStep });
   });
 
   return router;

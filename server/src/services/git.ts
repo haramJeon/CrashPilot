@@ -285,7 +285,7 @@ function findSubmodule(repoDir: string, filePath: string): string | null {
   const content = fs.readFileSync(gitmodulesPath, 'utf-8');
   const submodulePaths: string[] = [];
   for (const line of content.split('\n')) {
-    const m = line.match(/^\s*path\s*=\s*(.+)$/);
+    const m = line.match(/^\s*path\s*=\s*(.+?)[\r\s]*$/);
     if (m) submodulePaths.push(m[1].trim());
   }
 

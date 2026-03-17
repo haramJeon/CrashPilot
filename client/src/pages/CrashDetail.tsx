@@ -22,7 +22,24 @@ export default function CrashDetail() {
   const [refSearching, setRefSearching] = useState(false);
   const [refEditing, setRefEditing] = useState(false);
   const [refError, setRefError] = useState('');
+  // PR base branch (resolved from tag → branch mapping)
+  const [prBaseBranch, setPrBaseBranch] = useState<string | null>(null);
+  const [prBaseEditing, setPrBaseEditing] = useState(false);
+  const [prBaseInput, setPrBaseInput] = useState('');
+  const [prBaseLoading, setPrBaseLoading] = useState(false);
   const socketRef = useSocket();
+
+  const loadPrBaseBranch = async (tag: string) => {
+    if (!tag) return;
+    setPrBaseLoading(true);
+    try {
+      const res = await apiGet<{ branch: string | null }>(`/git/pr-base-branch?tag=${encodeURIComponent(tag)}`);
+      setPrBaseBranch(res.branch);
+      setPrBaseInput(res.branch ?? '');
+    } catch { /* ignore */ } finally {
+      setPrBaseLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -31,6 +48,7 @@ export default function CrashDetail() {
       setCrash(data);
       if (data.pipelineSteps?.length) setSteps(data.pipelineSteps);
       if (data.analysis) setAnalysis(data.analysis);
+      if (data.releaseTag) loadPrBaseBranch(data.releaseTag);
     }).catch(() => {});
 
     apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then((h) => {
@@ -90,6 +108,16 @@ export default function CrashDetail() {
     else setCrash((c) => c ? { ...c, releaseTag: ref.short } : c);
     setRefEditing(false);
     setRefMatches([]);
+    loadPrBaseBranch(ref.short);
+  };
+
+  const savePrBaseBranch = async () => {
+    if (!crash?.releaseTag || !prBaseInput.trim()) return;
+    try {
+      await apiPost('/git/pr-base-branch', { tag: crash.releaseTag, branch: prBaseInput.trim() });
+      setPrBaseBranch(prBaseInput.trim());
+      setPrBaseEditing(false);
+    } catch (e: any) { console.error(e); }
   };
 
   const isRunning = steps.some((s) => s.status === 'running');
@@ -225,6 +253,34 @@ export default function CrashDetail() {
         {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
+
+            {/* PR Base Branch row */}
+            {crash.releaseTag && (
+              <div className="pr-base-row">
+                <span className="pr-base-label">PR Base Branch:</span>
+                {prBaseEditing ? (
+                  <>
+                    <input
+                      className="pr-base-input"
+                      value={prBaseInput}
+                      onChange={(e) => setPrBaseInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') savePrBaseBranch(); if (e.key === 'Escape') setPrBaseEditing(false); }}
+                      autoFocus
+                    />
+                    <button className="branch-btn" onClick={savePrBaseBranch} title="Save"><Check size={12} /></button>
+                    <button className="branch-btn branch-btn-cancel" onClick={() => setPrBaseEditing(false)} title="Cancel"><X size={12} /></button>
+                  </>
+                ) : (
+                  <>
+                    {prBaseLoading
+                      ? <Loader size={12} className="spinning" />
+                      : <code className="branch-tag">{prBaseBranch ?? '—'}</code>}
+                    <button className="branch-edit-btn" onClick={() => setPrBaseEditing(true)} title="Edit mapping"><Pencil size={12} /></button>
+                  </>
+                )}
+              </div>
+            )}
+
             {isAwaitingAI && (
               <div className="ai-prompt-box">
                 <label className="ai-prompt-label">Custom prompt (optional — overrides default crash analysis query)</label>

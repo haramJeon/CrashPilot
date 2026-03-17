@@ -5,6 +5,14 @@ import { Octokit } from '@octokit/rest';
 import { loadConfig } from './config';
 import { CrashAnalysis } from '../types';
 
+const TAG_BRANCH_MAP_PATH = path.join(__dirname, '../../../data/tag-branch-map.json');
+function loadTagBranchMap(): Record<string, string> {
+  try {
+    if (fs.existsSync(TAG_BRANCH_MAP_PATH)) return JSON.parse(fs.readFileSync(TAG_BRANCH_MAP_PATH, 'utf-8'));
+  } catch { }
+  return {};
+}
+
 function getOctokit(): Octokit {
   const config = loadConfig();
   return new Octokit({ auth: config.github.token });
@@ -30,6 +38,51 @@ async function getDefaultBranch(octokit: Octokit, owner: string, repo: string): 
     return data.default_branch;
   } catch {
     return 'master';
+  }
+}
+
+/**
+ * Find the remote branch whose HEAD is closest (fewest commits ahead) to the given tag.
+ * Uses GitHub API compare endpoint — works with shallow clones.
+ * Limits to first 100 branches to avoid too many API calls.
+ */
+export async function findNearestBranchForTag(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  tag: string,
+): Promise<string | null> {
+  try {
+    // Paginate branches (cap at 100 to avoid excessive API calls)
+    const branches = await octokit.paginate(
+      octokit.repos.listBranches,
+      { owner, repo, per_page: 100 },
+      (res, done) => { done(); return res.data; }
+    );
+
+    let nearest: string | null = null;
+    let minAhead = Infinity;
+
+    for (const branch of branches) {
+      try {
+        const { data } = await octokit.repos.compareCommitsWithBasehead({
+          owner,
+          repo,
+          basehead: `${tag}...${branch.name}`,
+        });
+        // 'ahead' or 'identical': branch contains the tag commit
+        if (data.status === 'ahead' || data.status === 'identical') {
+          if (data.ahead_by < minAhead) {
+            minAhead = data.ahead_by;
+            nearest = branch.name;
+          }
+        }
+      } catch { /* branch may not contain tag — skip */ }
+    }
+
+    return nearest;
+  } catch {
+    return null;
   }
 }
 
@@ -90,7 +143,6 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
   const prUrls: string[] = [];
 
   // ── Collect repos that need PRs ─────────────────────────────────────────
-  // Each entry: { owner, repo, repoDir, isSubmodule }
   const targets: { owner: string; repo: string; dir: string }[] = [];
 
   // Parent repo: derive owner/repo from config or repoUrl
@@ -128,8 +180,12 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
   for (const target of targets) {
     let base = params.baseBranch;
     if (isTagRef(base)) {
-      // Tags can't be PR bases — use the repo's default branch
-      base = await getDefaultBranch(octokit, target.owner, target.repo);
+      // Check saved mapping first, then auto-detect via GitHub API
+      const map = loadTagBranchMap();
+      const nearest = map[base]
+        ?? await findNearestBranchForTag(octokit, target.owner, target.repo, base)
+        ?? await getDefaultBranch(octokit, target.owner, target.repo);
+      base = nearest;
     }
 
     try {
@@ -143,7 +199,6 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
       });
       prUrls.push(pr.data.html_url);
     } catch (err: any) {
-      // Don't fail the whole step if one PR creation fails — log and continue
       prUrls.push(`ERROR creating PR for ${target.owner}/${target.repo}: ${err.message}`);
     }
   }

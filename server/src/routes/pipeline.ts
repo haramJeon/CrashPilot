@@ -225,6 +225,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         baseBranch: releaseBranch,
         crashSubject: subject,
         analysis,
+        repoDir,
       });
 
       analysis.prUrl = prUrl;

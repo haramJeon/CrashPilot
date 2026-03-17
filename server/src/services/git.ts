@@ -158,8 +158,11 @@ export function getRepoDirForBranch(ref: string): string {
   return repoDir;
 }
 
-function gitWithLog(baseDir?: string, onLog?: (line: string) => void) {
+function gitWithLog(baseDir?: string, onLog?: (line: string) => void, extraEnv?: Record<string, string>) {
   const git = baseDir ? simpleGit(baseDir) : simpleGit();
+  if (extraEnv) {
+    git.env({ ...process.env, ...extraEnv } as Record<string, string>);
+  }
   if (onLog) {
     git.outputHandler((_cmd, stdout, stderr) => {
       const emit = (data: Buffer) => {
@@ -173,6 +176,13 @@ function gitWithLog(baseDir?: string, onLog?: (line: string) => void) {
     });
   }
   return git;
+}
+
+// Git instance with LFS push-lock check disabled (GIT_LFS_SKIP_PUSH=1).
+// Needed when pushing fix branches: other users may hold LFS locks on
+// unrelated files (e.g. .gitignore) causing "Cannot update locked files".
+function gitNolfs(baseDir: string, onLog?: (line: string) => void) {
+  return gitWithLog(baseDir, onLog, { GIT_LFS_SKIP_PUSH: '1' });
 }
 
 /**
@@ -340,7 +350,7 @@ export async function commitAndPush(
     onLog?.(`> git commit -m "${message.split('\n')[0]}"  (submodule: ${submodule})`);
     await subGit.commit(message);
     onLog?.(`> git push origin ${subBranchName} --set-upstream  (submodule: ${submodule})`);
-    await subGit.push('origin', subBranchName, ['--set-upstream']);
+    await gitNolfs(subDir, onLog).push('origin', subBranchName, ['--set-upstream']);
 
     // Stage updated submodule pointer in parent
     const parentGit = gitWithLog(repoDir, onLog);
@@ -367,7 +377,7 @@ export async function commitAndPush(
   await parentGit.commit(message);
   const branch = (await parentGit.branch()).current;
   onLog?.(`> git push origin ${branch} --set-upstream`);
-  await parentGit.push('origin', branch, ['--set-upstream']);
+  await gitNolfs(repoDir, onLog).push('origin', branch, ['--set-upstream']);
 }
 
 const SOURCE_EXTS = new Set(['.cpp', '.h', '.c', '.hpp', '.cc', '.cxx']);

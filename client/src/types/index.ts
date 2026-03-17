@@ -63,6 +63,7 @@ export interface AppConfig {
   };
   claude: {
     apiKey: string;
+    model: string;
   };
   github: {
     token: string;

@@ -1,6 +1,20 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import { FixedFile } from '../types';
+
+function killProcess(proc: ChildProcess): void {
+  if (!proc.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      // On Windows, kill the entire process tree (claude may spawn child tool processes)
+      spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore' });
+    } else {
+      proc.kill('SIGKILL');
+    }
+  } catch {
+    // ignore errors during cleanup
+  }
+}
 
 function runClaude(
   prompt: string,
@@ -8,23 +22,29 @@ function runClaude(
   allowedDirs?: string[],
   onLog?: (line: string) => void,
   shouldAbort?: () => boolean,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = ['--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'];
+  model?: string,
+): { promise: Promise<string>; kill: () => void } {
+  let proc: ChildProcess | null = null;
+
+  const promise = new Promise<string>((resolve, reject) => {
+    const args = ['--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--dangerously-skip-permissions'];
+    if (model) {
+      args.push('--model', model);
+    }
     for (const dir of allowedDirs ?? []) {
       args.push('--add-dir', dir);
     }
-    const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
+    proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
 
-    proc.stdin.write(prompt, 'utf-8');
-    proc.stdin.end();
+    proc.stdin!.write(prompt, 'utf-8');
+    proc.stdin!.end();
 
     let finalResult = '';
     const errLines: string[] = [];
     let outRemainder = '';
     let errRemainder = '';
 
-    proc.stdout.on('data', (chunk: Buffer) => {
+    proc.stdout!.on('data', (chunk: Buffer) => {
       const text = outRemainder + chunk.toString('utf-8');
       const lines = text.split('\n');
       outRemainder = lines.pop() ?? '';
@@ -42,7 +62,7 @@ function runClaude(
       }
     });
 
-    proc.stderr.on('data', (chunk: Buffer) => {
+    proc.stderr!.on('data', (chunk: Buffer) => {
       const text = errRemainder + chunk.toString('utf-8');
       const lines = text.split('\n');
       errRemainder = lines.pop() ?? '';
@@ -53,7 +73,7 @@ function runClaude(
     });
 
     const timer = setTimeout(() => {
-      proc.kill();
+      if (proc) killProcess(proc);
       reject(new Error('Claude CLI timed out after 10 minutes'));
     }, 600000);
 
@@ -61,7 +81,7 @@ function runClaude(
       ? setInterval(() => {
           if (shouldAbort()) {
             clearInterval(abortPoller);
-            proc.kill();
+            if (proc) killProcess(proc);
             reject(new Error('__CANCELLED__'));
           }
         }, 1000)
@@ -85,8 +105,17 @@ function runClaude(
       }
     });
 
-    proc.on('error', (e) => { clearTimeout(timer); if (abortPoller) clearInterval(abortPoller); reject(e); });
+    proc.on('error', (e) => {
+      clearTimeout(timer);
+      if (abortPoller) clearInterval(abortPoller);
+      reject(e);
+    });
   });
+
+  return {
+    promise,
+    kill: () => { if (proc) killProcess(proc!); },
+  };
 }
 
 function handleStreamEvent(event: any, onLog?: (line: string) => void): void {
@@ -124,6 +153,8 @@ export async function analyzeAndFix(params: {
   repoDir?: string;
   onLog?: (line: string) => void;
   shouldAbort?: () => boolean;
+  model?: string;
+  customPrompt?: string;
 }): Promise<{
   rootCause: string;
   suggestedFix: string;
@@ -131,7 +162,11 @@ export async function analyzeAndFix(params: {
 }> {
   const { onLog } = params;
 
-  const prompt = `C++ crash analysis. Read the CDB output file, find the relevant source files, and fix the crash.
+  const jsonFooter = `\n\nReply with ONLY this JSON (no markdown, paths must be relative to repo root):\n{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"relative/path/to/file.cpp","content":"<FULL file content>"}]}`;
+
+  const prompt = params.customPrompt?.trim()
+    ? `${params.customPrompt.trim()}${jsonFooter}`
+    : `C++ crash analysis. Read the CDB output file, find the relevant source files, and fix the crash.
 
 ${params.cdbTxtPath ? `CDB output: ${params.cdbTxtPath}` : `Exception: ${params.exceptionType} in ${params.faultingModule} (no CDB file available)`}
 
@@ -143,9 +178,8 @@ Rules:
 - Search the repo for the relevant source files
 - Produce the minimal fix
 - Only include files you actually change
-
-Reply with ONLY this JSON (no markdown):
-{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"...","content":"<FULL file content, not a patch — the content will be written directly to disk>"}]}`;
+- File paths must be relative to the repo root (e.g. "framework/kernel/source/foo.cpp")
+${jsonFooter}`;
 
   onLog?.(`[AI] Exception: ${params.exceptionType} | Module: ${params.faultingModule}`);
   onLog?.(`[AI] CDB file : ${params.cdbTxtPath || '(none)'}`);
@@ -158,8 +192,15 @@ Reply with ONLY this JSON (no markdown):
 
   const allowedDirs = params.cdbTxtPath ? [path.dirname(params.cdbTxtPath)] : [];
 
-  const text = await runClaude(prompt, params.repoDir, allowedDirs, onLog, params.shouldAbort);
-  onLog?.(`[AI] Response received — ${text.length} chars`);
+  const { promise, kill } = runClaude(prompt, params.repoDir, allowedDirs, onLog, params.shouldAbort, params.model);
+  let text: string;
+  try {
+    text = await promise;
+  } finally {
+    kill();
+    onLog?.(`[AI] Claude session terminated`);
+  }
+  onLog?.(`[AI] Response received — ${text!.length} chars`);
 
   // Extract JSON object from response even if surrounded by explanatory text
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -167,10 +208,16 @@ Reply with ONLY this JSON (no markdown):
 
   try {
     const result = JSON.parse(jsonText);
+    const repoDirNorm = (params.repoDir ?? '').replace(/\\/g, '/').replace(/\/?$/, '/');
     const fixedFiles: FixedFile[] = (result.fixedFiles || []).map((f: any) => {
+      // Normalize absolute paths returned by Claude to repo-relative
+      const rawPath: string = (f.path ?? '').replace(/\\/g, '/');
+      const relPath = repoDirNorm && rawPath.startsWith(repoDirNorm)
+        ? rawPath.slice(repoDirNorm.length)
+        : rawPath;
       const original = '';
       return {
-        path: f.path,
+        path: relPath,
         original,
         modified: f.content,
         diff: generateSimpleDiff(original, f.content),

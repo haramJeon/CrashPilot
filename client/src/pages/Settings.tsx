@@ -49,7 +49,7 @@ export default function Settings() {
 
   const update = (section: keyof AppConfig, key: string, value: string) => {
     if (!config) return;
-    setConfig({ ...config, [section]: { ...config[section], [key]: value } });
+    setConfig({ ...config, [section]: { ...(config[section] as object), [key]: value } });
   };
 
   if (!config) return <div className="settings-loading">Loading settings...</div>;
@@ -166,6 +166,11 @@ export default function Settings() {
           <div className="field">
             <label>API Key</label>
             <input type="password" value={config.claude.apiKey} onChange={(e) => update('claude', 'apiKey', e.target.value)} placeholder="sk-ant-..." />
+          </div>
+          <div className="field">
+            <label>Model</label>
+            <input value={config.claude.model} onChange={(e) => update('claude', 'model', e.target.value)} placeholder="claude-sonnet-4-6" />
+            <p className="field-help">e.g. claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001</p>
           </div>
         </div>
 

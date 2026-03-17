@@ -16,6 +16,7 @@ export default function CrashDetail() {
   const [crash, setCrash] = useState<CrashReport | null>(null);
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
+  const [customPrompt, setCustomPrompt] = useState('');
   const [history, setHistory] = useState<PipelineRunHistory | null>(null);
   const [refMatches, setRefMatches] = useState<RemoteRef[]>([]);
   const [refSearching, setRefSearching] = useState(false);
@@ -114,7 +115,7 @@ export default function CrashDetail() {
 
   const runAI = async () => {
     if (!crash) return;
-    try { await apiPost(`/pipeline/run-ai/${crash.id}`, {}); } catch (e: any) { console.error(e); }
+    try { await apiPost(`/pipeline/run-ai/${crash.id}`, { customPrompt: customPrompt.trim() || undefined }); } catch (e) { console.error(e); }
   };
 
   const retryStep = async (stepIdx: number) => {
@@ -224,6 +225,18 @@ export default function CrashDetail() {
         {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
+            {isAwaitingAI && (
+              <div className="ai-prompt-box">
+                <label className="ai-prompt-label">Custom prompt (optional — overrides default crash analysis query)</label>
+                <textarea
+                  className="ai-prompt-textarea"
+                  rows={5}
+                  placeholder="Leave empty to use the default prompt, or enter a custom query to send directly to Claude..."
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                />
+              </div>
+            )}
             <PipelineView steps={steps} onRunAI={isAwaitingAI ? runAI : undefined} onRetry={retryStep} />
           </div>
         )}

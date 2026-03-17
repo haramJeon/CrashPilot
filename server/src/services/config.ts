@@ -26,6 +26,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   claude: {
     apiKey: '',
+    model: 'claude-sonnet-4-6',
   },
   github: {
     token: '',

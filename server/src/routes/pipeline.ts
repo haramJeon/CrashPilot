@@ -5,9 +5,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, commitAndPush, initSubmodules, getRepoDirForBranch } from '../services/git';
+import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
+import { loadConfig } from '../services/config';
 import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory, PipelineState } from '../types';
 
 const HISTORY_DIR = path.join(__dirname, '../../../data/pipeline-runs');
@@ -104,7 +105,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
     aiWaitStates.delete(crashId);
     res.json({ message: 'AI analysis started', crashId });
 
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbOutput, cdbTxtPath, pdbDir, dmpPath, releaseBranch, pipelineState } = state;
+    const customPrompt: string | undefined = req.body?.customPrompt?.trim() || undefined;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbTxtPath, releaseBranch, pipelineState } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -175,6 +177,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
         repoDir,
         onLog: (line) => log(7, line),
         shouldAbort: isCancelled,
+        model: loadConfig().claude.model,
+        customPrompt,
       });
 
       if (aiResult.fixedFiles.length === 0) {
@@ -186,15 +190,18 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
-      // Step 8: Commit & push (Claude already wrote the files — just commit)
+      // Step 8: Write files to disk, then commit & push
       steps[8].status = 'running';
       emitSteps(crashId, steps);
+
+      await applyFixes(repoDir, aiResult.fixedFiles, (line) => log(8, line));
 
       await commitAndPush(
         repoDir,
         aiResult.fixedFiles,
         `[CrashPilot] Fix ${cdbExceptionType} in ${cdbFaultingModule}\n\nReport #${crash.id} - v${swVersion}\n\n${aiResult.suggestedFix}`,
-        (line) => log(8, line)
+        (line) => log(8, line),
+        fixBranch,
       );
 
       steps[8].status = 'done';

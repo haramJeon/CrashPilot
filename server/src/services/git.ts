@@ -237,6 +237,13 @@ export async function createFixBranch(
   onLog?.(`> git reset --hard FETCH_HEAD`);
   await git.raw(['reset', '--hard', 'FETCH_HEAD']);
 
+  // Reset submodule working trees to match the parent's pinned commits
+  const gitmodulesPath = path.join(repoDir, '.gitmodules');
+  if (fs.existsSync(gitmodulesPath)) {
+    onLog?.(`> git submodule update --init --force  (reset submodule working trees)`);
+    await git.submoduleUpdate(['--init', '--force']);
+  }
+
   const branchName = `fix/crash-${crashId}-${Date.now()}`;
   onLog?.(`> git checkout -b ${branchName}`);
   await git.checkoutBranch(branchName, 'HEAD');
@@ -245,7 +252,9 @@ export async function createFixBranch(
 
 export async function applyFixes(repoDir: string, fixedFiles: FixedFile[], onLog?: (line: string) => void): Promise<void> {
   for (const file of fixedFiles) {
-    const fullPath = path.join(repoDir, file.path);
+    // Normalize: Claude may return absolute paths — convert to repo-relative first
+    const relPath = toRepoRelative(repoDir, file.path);
+    const fullPath = path.join(repoDir, relPath);
     const dir = path.dirname(fullPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -255,23 +264,110 @@ export async function applyFixes(repoDir: string, fixedFiles: FixedFile[], onLog
   }
 }
 
+/**
+ * Detect which git submodule (if any) a file path belongs to.
+ * Returns the submodule path (relative to repoDir) or null.
+ */
+function findSubmodule(repoDir: string, filePath: string): string | null {
+  const gitmodulesPath = path.join(repoDir, '.gitmodules');
+  if (!fs.existsSync(gitmodulesPath)) return null;
+
+  const content = fs.readFileSync(gitmodulesPath, 'utf-8');
+  const submodulePaths: string[] = [];
+  for (const line of content.split('\n')) {
+    const m = line.match(/^\s*path\s*=\s*(.+)$/);
+    if (m) submodulePaths.push(m[1].trim());
+  }
+
+  // Normalize filePath separators to forward slashes for comparison
+  const normalizedFile = filePath.replace(/\\/g, '/');
+  for (const subPath of submodulePaths) {
+    const normalizedSub = subPath.replace(/\\/g, '/');
+    if (normalizedFile.startsWith(normalizedSub + '/') || normalizedFile === normalizedSub) {
+      return subPath;
+    }
+  }
+  return null;
+}
+
+/**
+ * Convert an absolute file path to a repo-relative path.
+ * If it's already relative, return as-is (with forward slashes).
+ */
+function toRepoRelative(repoDir: string, filePath: string): string {
+  const normalizedFile = filePath.replace(/\\/g, '/');
+  const normalizedRepo = repoDir.replace(/\\/g, '/').replace(/\/?$/, '/');
+  if (normalizedFile.startsWith(normalizedRepo)) {
+    return normalizedFile.slice(normalizedRepo.length);
+  }
+  return normalizedFile;
+}
+
 export async function commitAndPush(
   repoDir: string,
   fixedFiles: FixedFile[],
   message: string,
-  onLog?: (line: string) => void
+  onLog?: (line: string) => void,
+  fixBranchName?: string,
 ): Promise<void> {
-  const git = gitWithLog(repoDir, onLog);
+  // Group files by submodule (null = parent repo).
+  // Always normalize to repo-relative paths first (Claude may return absolute paths).
+  const groups = new Map<string | null, string[]>();
   for (const file of fixedFiles) {
-    onLog?.(`> git add ${file.path}`);
-    await git.add(file.path);
+    const relPath = toRepoRelative(repoDir, file.path);
+    const submodule = findSubmodule(repoDir, relPath);
+    if (!groups.has(submodule)) groups.set(submodule, []);
+    groups.get(submodule)!.push(relPath);
   }
+
+  // For each submodule that has changed files: create branch, commit, push
+  for (const [submodule, files] of groups) {
+    if (submodule === null) continue;
+
+    const subDir = path.join(repoDir, submodule);
+    const subGit = gitWithLog(subDir, onLog);
+
+    // Create a fix branch in the submodule (same name as parent fix branch)
+    const subBranchName = fixBranchName ?? `fix/submodule-${Date.now()}`;
+    onLog?.(`> git checkout -b ${subBranchName}  (submodule: ${submodule})`);
+    await subGit.checkoutBranch(subBranchName, 'HEAD');
+
+    for (const filePath of files) {
+      const relPath = filePath.slice(submodule.replace(/\\/g, '/').length + 1);
+      onLog?.(`> git add ${relPath}  (submodule: ${submodule})`);
+      await subGit.add(relPath);
+    }
+    onLog?.(`> git commit -m "${message.split('\n')[0]}"  (submodule: ${submodule})`);
+    await subGit.commit(message);
+    onLog?.(`> git push origin ${subBranchName} --set-upstream  (submodule: ${submodule})`);
+    await subGit.push('origin', subBranchName, ['--set-upstream']);
+
+    // Stage updated submodule pointer in parent
+    const parentGit = gitWithLog(repoDir, onLog);
+    onLog?.(`> git add ${submodule}  (update submodule pointer in parent)`);
+    await parentGit.add(submodule);
+  }
+
+  // Commit files in the parent repo (including any updated submodule pointers)
+  const parentGit = gitWithLog(repoDir, onLog);
+  const parentFiles = groups.get(null) ?? [];
+  for (const filePath of parentFiles) {
+    onLog?.(`> git add ${filePath}`);
+    await parentGit.add(filePath);
+  }
+
+  const status = await parentGit.status();
+  if (status.staged.length === 0) {
+    onLog?.('[git] Nothing to commit in parent repo — submodule-only changes already pushed.');
+    return;
+  }
+
   const firstLine = message.split('\n')[0];
   onLog?.(`> git commit -m "${firstLine}"`);
-  await git.commit(message);
-  const branch = (await git.branch()).current;
+  await parentGit.commit(message);
+  const branch = (await parentGit.branch()).current;
   onLog?.(`> git push origin ${branch} --set-upstream`);
-  await git.push('origin', branch, ['--set-upstream']);
+  await parentGit.push('origin', branch, ['--set-upstream']);
 }
 
 const SOURCE_EXTS = new Set(['.cpp', '.h', '.c', '.hpp', '.cc', '.cxx']);

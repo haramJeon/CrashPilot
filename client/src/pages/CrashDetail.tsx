@@ -114,13 +114,13 @@ export default function CrashDetail() {
 
   const runAI = async () => {
     if (!crash) return;
-    try { await apiPost(, {}); } catch (e: any) { console.error(e); }
+    try { await apiPost(`/pipeline/run-ai/${crash.id}`, {}); } catch (e: any) { console.error(e); }
   };
 
   const retryStep = async (stepIdx: number) => {
     if (!crash) return;
     try {
-      const result = await apiPost<{ action: string }>(, {});
+      const result = await apiPost<{ action: string }>(`/pipeline/retry/${crash.id}/${stepIdx}`, {});
       if (result.action === 'rerun') {
         await runPipeline();
       }

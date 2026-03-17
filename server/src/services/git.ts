@@ -199,11 +199,10 @@ export async function checkoutRef(ref: string, onLog?: (line: string) => void): 
 
   if (!fs.existsSync(repoDir)) {
     fs.mkdirSync(repoDir, { recursive: true });
-    onLog?.(`> git clone --branch ${ref} --single-branch --depth 20 --progress ${repoUrl} ${repoDir}`);
+    onLog?.(`> git clone --branch ${ref} --depth 20 --progress ${repoUrl} ${repoDir}`);
     try {
       await gitWithLog(undefined, onLog).clone(repoUrl, repoDir, [
         '--branch', ref,
-        '--single-branch',
         '--depth', '20',
         '--progress',
       ]);

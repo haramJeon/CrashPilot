@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, CheckCircle, AlertCircle, Trash2, Plus } from 'lucide-react';
 import { apiGet, apiPost } from '../hooks/useApi';
 import type { AppConfig, ApiSoftware, Platform } from '../types';
 import './Settings.css';
@@ -11,6 +11,13 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [validation, setValidation] = useState<{ valid: boolean; issues: string[] } | null>(null);
+  const [tagBranchMap, setTagBranchMap] = useState<Record<string, string>>({});
+  const [newTag, setNewTag] = useState('');
+  const [newBranch, setNewBranch] = useState('');
+
+  const loadTagBranchMap = () => {
+    apiGet<Record<string, string>>('/git/tag-branch-map').then(setTagBranchMap).catch(() => {});
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -29,7 +36,23 @@ export default function Settings() {
     };
     init();
     apiGet<ApiSoftware[]>('/config/softwares').then(setSoftwares).catch(() => {});
+    loadTagBranchMap();
   }, []);
+
+  const addMapping = async () => {
+    const tag = newTag.trim();
+    const branch = newBranch.trim();
+    if (!tag || !branch) return;
+    await apiPost('/git/pr-base-branch', { tag, branch }).catch(() => {});
+    setNewTag('');
+    setNewBranch('');
+    loadTagBranchMap();
+  };
+
+  const deleteMapping = async (tag: string) => {
+    await fetch(`/api/git/tag-branch-map/${encodeURIComponent(tag)}`, { method: 'DELETE' }).catch(() => {});
+    loadTagBranchMap();
+  };
 
   const saveSettings = async () => {
     if (!config) return;
@@ -245,6 +268,53 @@ export default function Settings() {
               />
             </div>
           ))}
+        </div>
+
+        {/* Tag → Branch Mapping */}
+        <div className="settings-section">
+          <h3>Tag → Branch Mapping <span className="field-hint">(used for PR base branch only, does not affect checkout)</span></h3>
+          <p className="field-help" style={{ marginBottom: 14 }}>
+            When a crash tag matches, the mapped branch is auto-filled as the PR base branch.
+          </p>
+          {Object.keys(tagBranchMap).length > 0 && (
+            <table className="mapping-table">
+              <thead>
+                <tr><th>Tag</th><th>Branch</th><th></th></tr>
+              </thead>
+              <tbody>
+                {Object.entries(tagBranchMap).map(([tag, branch]) => (
+                  <tr key={tag}>
+                    <td><code>{tag}</code></td>
+                    <td><code>{branch}</code></td>
+                    <td>
+                      <button className="btn-icon-danger" onClick={() => deleteMapping(tag)} title="Delete">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div className="mapping-add-row">
+            <input
+              className="mapping-input"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addMapping(); }}
+              placeholder="tag  (e.g. pos/2.2.1/29)"
+            />
+            <input
+              className="mapping-input"
+              value={newBranch}
+              onChange={(e) => setNewBranch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addMapping(); }}
+              placeholder="branch  (e.g. release/2.2)"
+            />
+            <button className="btn btn-sm btn-accent" onClick={addMapping} disabled={!newTag.trim() || !newBranch.trim()}>
+              <Plus size={14} /> Add
+            </button>
+          </div>
         </div>
 
         {/* Debugger */}

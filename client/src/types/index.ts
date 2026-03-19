@@ -17,6 +17,7 @@ export interface CrashReport {
   status: CrashStatus;
   analysis?: CrashAnalysis;
   pipelineSteps?: PipelineStep[];
+  prFixBranch?: string;
 }
 
 export interface StackEntry {

@@ -18,6 +18,7 @@ export interface CrashReport {
   status: CrashStatus;
   analysis?: CrashAnalysis;
   pipelineSteps?: PipelineStep[];
+  prFixBranch?: string;      // manual override for PR head branch (fix branch)
 }
 
 export interface StackEntry {
@@ -123,6 +124,7 @@ export interface PipelineState {
   cdbExceptionType: string;
   cdbFaultingModule: string;
   releaseBranch: string;
+  fixBranch?: string;
 }
 
 // Raw types from crashReportOrganizer API

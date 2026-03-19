@@ -13,9 +13,26 @@ function loadTagBranchMap(): Record<string, string> {
   return {};
 }
 
-function getOctokit(): Octokit {
+/** Get auth token: git credential manager first (same as push), fall back to config token. */
+function resolveGitHubToken(): string {
+  // Prefer the token git itself uses for pushes (Windows Credential Manager, gh CLI, etc.)
+  try {
+    const out = execSync('git credential fill', {
+      input: 'protocol=https\nhost=github.com\n',
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    const m = out.match(/^password=(.+)$/m);
+    if (m) return m[1].trim();
+  } catch { /* ignore */ }
+
+  // Fall back to manually configured token
   const config = loadConfig();
-  return new Octokit({ auth: config.github.token });
+  return config.github.token || '';
+}
+
+function getOctokit(): Octokit {
+  return new Octokit({ auth: resolveGitHubToken() });
 }
 
 /** Parse { owner, repo } from a GitHub remote URL (https or ssh). */
@@ -31,12 +48,20 @@ function isTagRef(ref: string): boolean {
   return parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1]);
 }
 
-/** Get the default branch of a GitHub repo via API. */
+/** Get the default branch of a GitHub repo via API, with ls-remote fallback. */
 async function getDefaultBranch(octokit: Octokit, owner: string, repo: string): Promise<string> {
   try {
     const { data } = await octokit.repos.get({ owner, repo });
     return data.default_branch;
   } catch {
+    // API failed (e.g. token lacks repo scope for private org) — fall back to git ls-remote
+    try {
+      const config = loadConfig();
+      const repoUrl = config.git.repoUrl || `https://github.com/${owner}/${repo}.git`;
+      const output = execSync(`git ls-remote --symref "${repoUrl}" HEAD`, { encoding: 'utf-8', timeout: 15000 });
+      const m = output.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m);
+      if (m) return m[1];
+    } catch { /* ignore */ }
     return 'master';
   }
 }
@@ -86,16 +111,36 @@ export async function findNearestBranchForTag(
   }
 }
 
-/** Read submodule paths from .gitmodules (handles CRLF). */
-function readSubmodulePaths(repoDir: string): string[] {
-  const file = path.join(repoDir, '.gitmodules');
-  if (!fs.existsSync(file)) return [];
-  const paths: string[] = [];
-  for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
-    const m = line.match(/^\s*path\s*=\s*(.+?)[\r\s]*$/);
-    if (m) paths.push(m[1].trim());
+/** Normalize a file path to repo-relative (forward slashes). */
+function toRepoRelative(repoDir: string, filePath: string): string {
+  const normalizedFile = filePath.replace(/\\/g, '/');
+  const normalizedRepo = repoDir.replace(/\\/g, '/').replace(/\/?$/, '/');
+  if (normalizedFile.startsWith(normalizedRepo)) {
+    return normalizedFile.slice(normalizedRepo.length);
   }
-  return paths;
+  return normalizedFile;
+}
+
+/** Read submodule entries from .gitmodules (handles CRLF).
+ *  Returns a map of submodule path → tracked branch (or null if not specified).
+ */
+function readSubmoduleEntries(repoDir: string): Map<string, string | null> {
+  const file = path.join(repoDir, '.gitmodules');
+  if (!fs.existsSync(file)) return new Map();
+  const entries = new Map<string, string | null>();
+  let currentPath: string | null = null;
+  for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
+    const pathMatch = line.match(/^\s*path\s*=\s*(.+?)[\r\s]*$/);
+    if (pathMatch) {
+      currentPath = pathMatch[1].trim();
+      if (!entries.has(currentPath)) entries.set(currentPath, null);
+    }
+    const branchMatch = line.match(/^\s*branch\s*=\s*(.+?)[\r\s]*$/);
+    if (branchMatch && currentPath !== null) {
+      entries.set(currentPath, branchMatch[1].trim());
+    }
+  }
+  return entries;
 }
 
 /** Get the remote origin URL of a git repo / submodule directory. */
@@ -143,7 +188,7 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
   const prUrls: string[] = [];
 
   // ── Collect repos that need PRs ─────────────────────────────────────────
-  const targets: { owner: string; repo: string; dir: string }[] = [];
+  const targets: { owner: string; repo: string; dir: string; submoduleBranch?: string | null }[] = [];
 
   // Parent repo: derive owner/repo from config or repoUrl
   const parentUrl = config.git.repoUrl || '';
@@ -157,38 +202,48 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
 
   // Submodule repos: find submodules that contain changed files
   if (params.repoDir) {
-    const submodulePaths = readSubmodulePaths(params.repoDir);
-    const changedSubmodules = new Set<string>();
+    const submoduleEntries = readSubmoduleEntries(params.repoDir);
+    console.log(`[CrashPilot] Submodule entries in .gitmodules: ${JSON.stringify([...submoduleEntries.entries()])}`);
+    console.log(`[CrashPilot] Fixed file paths: ${JSON.stringify(params.analysis.fixedFiles.map((f) => f.path))}`);
+    const changedSubmodules = new Map<string, string | null>(); // path → branch
     for (const f of params.analysis.fixedFiles) {
-      const norm = f.path.replace(/\\/g, '/');
-      for (const sub of submodulePaths) {
-        if (norm.startsWith(sub + '/') || norm === sub) {
-          changedSubmodules.add(sub);
+      const norm = toRepoRelative(params.repoDir, f.path);
+      console.log(`[CrashPilot] Normalized file path: ${norm}`);
+      for (const [sub, branch] of submoduleEntries) {
+        const normSub = sub.replace(/\\/g, '/');
+        if (norm.startsWith(normSub + '/') || norm === normSub) {
+          changedSubmodules.set(sub, branch);
         }
       }
     }
-    for (const sub of changedSubmodules) {
+    console.log(`[CrashPilot] Changed submodules detected: ${JSON.stringify([...changedSubmodules.entries()])}`);
+    for (const [sub, subBranch] of changedSubmodules) {
       const subDir = path.join(params.repoDir, sub);
       const subUrl = getRemoteUrl(subDir);
+      console.log(`[CrashPilot] Submodule ${sub} → dir=${subDir} url=${subUrl} branch=${subBranch}`);
       if (!subUrl) continue;
       const parsed = parseGitHubOwnerRepo(subUrl);
-      if (parsed) targets.push({ ...parsed, dir: subDir });
+      if (parsed) targets.push({ ...parsed, dir: subDir, submoduleBranch: subBranch });
     }
+  }
+
+  // ── Resolve base branch from Settings mapping ────────────────────────────
+  const map = loadTagBranchMap();
+  const resolvedBase = map[params.baseBranch];
+  if (!resolvedBase) {
+    throw new Error(
+      `No branch mapping found for tag "${params.baseBranch}". ` +
+      `Please add it in Settings → Tag → Branch Mapping.`
+    );
   }
 
   // ── Create a PR for each target repo ────────────────────────────────────
   for (const target of targets) {
-    let base = params.baseBranch;
-    if (isTagRef(base)) {
-      // Check saved mapping first, then auto-detect via GitHub API
-      const map = loadTagBranchMap();
-      const nearest = map[base]
-        ?? await findNearestBranchForTag(octokit, target.owner, target.repo, base)
-        ?? await getDefaultBranch(octokit, target.owner, target.repo);
-      base = nearest;
-    }
+    // Submodules use the branch tracked in .gitmodules; parent repo uses the tag→branch mapping
+    const base = target.submoduleBranch ?? resolvedBase;
 
     try {
+      console.log(`[CrashPilot] Creating PR: owner=${target.owner} repo=${target.repo} head=${params.branch} base=${base}`);
       const pr = await octokit.pulls.create({
         owner: target.owner,
         repo: target.repo,
@@ -199,6 +254,7 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
       });
       prUrls.push(pr.data.html_url);
     } catch (err: any) {
+      console.error(`[CrashPilot] PR creation failed: owner=${target.owner} repo=${target.repo} head=${params.branch} base=${base} error=${err.message}`);
       prUrls.push(`ERROR creating PR for ${target.owner}/${target.repo}: ${err.message}`);
     }
   }

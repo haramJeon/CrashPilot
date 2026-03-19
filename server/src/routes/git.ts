@@ -78,3 +78,18 @@ gitRouter.post('/pr-base-branch', (req, res) => {
   saveTagBranchMap(map);
   res.json({ ok: true, tag, branch });
 });
+
+// Get all tag → branch mappings
+gitRouter.get('/tag-branch-map', (_req, res) => {
+  res.json(loadTagBranchMap());
+});
+
+// Delete a tag → branch mapping
+gitRouter.delete('/tag-branch-map/:tag', (req, res) => {
+  const tag = decodeURIComponent(req.params.tag);
+  const map = loadTagBranchMap();
+  if (!(tag in map)) return res.status(404).json({ error: 'Mapping not found' });
+  delete map[tag];
+  saveTagBranchMap(map);
+  res.json({ ok: true });
+});

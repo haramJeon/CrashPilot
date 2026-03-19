@@ -58,11 +58,17 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
 
   const results: CrashReport[] = [];
   for (const softwareId of softwareIds) {
-    try {
-      const reports = await fetchReports(softwareId, filter);
-      results.push(...reports);
-    } catch (e) {
-      console.error(`Failed to fetch reports for software ${softwareId}:`, e);
+    let page = 1;
+    while (true) {
+      try {
+        const reports = await fetchReports(softwareId, filter, page);
+        if (reports.length === 0) break;
+        results.push(...reports);
+        page++;
+      } catch (e) {
+        console.error(`Failed to fetch reports for software ${softwareId} page ${page}:`, e);
+        break;
+      }
     }
   }
 

@@ -168,7 +168,8 @@ export function pipelineRouter(io: SocketIOServer): Router {
       steps[7].message = undefined;
       emitSteps(crashId, steps);
 
-      const { branchName: fixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
+      const { branchName: autoFixBranch } = await createFixBranch(releaseBranch, String(crash.id), (line) => log(7, line));
+      const fixBranch = getCrashRecord(Number(crashId))?.prFixBranch?.trim() || autoFixBranch;
 
       const aiResult = await analyzeAndFix({
         exceptionType: cdbExceptionType,
@@ -207,6 +208,9 @@ export function pipelineRouter(io: SocketIOServer): Router {
       steps[8].status = 'done';
       steps[8].message = `Pushed to ${fixBranch}`;
       emitSteps(crashId, steps);
+
+      // Save fixBranch into pipelineState so step 9 can be retried independently
+      pipelineState.fixBranch = fixBranch;
 
       // Step 9: Create PR
       steps[9].status = 'running';
@@ -435,9 +439,51 @@ export function pipelineRouter(io: SocketIOServer): Router {
       return res.json({ action: 'rerun' });
     }
 
-    // fromStep 5-9: restore aiWaitState from history pipelineState
     const ps = history.pipelineState;
     if (!ps) return res.status(400).json({ error: 'No saved pipeline state in history' });
+
+    // Step 9 (Create PR) only: retry directly without re-running AI/commit steps
+    if (fromStep === 9) {
+      const fixBranch = ps.fixBranch;
+      const analysis = history.analysis;
+      if (!fixBranch) return res.status(400).json({ error: 'No fix branch saved in history. Please re-run the full pipeline.' });
+      if (!analysis)  return res.status(400).json({ error: 'No analysis saved in history. Please re-run the full pipeline.' });
+
+      const crash = getCrashRecord(Number(crashId));
+      if (!crash) return res.status(404).json({ error: 'Crash record not found' });
+
+      const steps: PipelineStep[] = history.steps.map((s, i) =>
+        i === 9 ? { name: s.name, status: 'running' } : { ...s }
+      );
+      emitSteps(crashId, steps);
+      res.json({ action: 'retrying_pr' });
+
+      try {
+        const repoDir = ps.pdbDir ? require('../services/git').getRepoDirForBranch(ps.releaseBranch) : undefined;
+        const prUrl = await createPullRequest({
+          branch: fixBranch,
+          baseBranch: ps.releaseBranch,
+          crashSubject: crash.subject,
+          analysis,
+          repoDir,
+        });
+        analysis.prUrl = prUrl;
+        steps[9].status = 'done';
+        steps[9].message = prUrl;
+        emitSteps(crashId, steps);
+        saveHistory({ ...history, status: 'completed', steps: [...steps], analysis });
+        io.emit('pipeline:complete', { crashId, analysis });
+      } catch (err: any) {
+        steps[9].status = 'error';
+        steps[9].message = err.message;
+        emitSteps(crashId, steps);
+        saveHistory({ ...history, status: 'error', steps: [...steps], errorMessage: err.message });
+        io.emit('pipeline:error', { crashId, error: err.message });
+      }
+      return;
+    }
+
+    // fromStep 5-8: restore aiWaitState from history pipelineState
 
     // Reset steps from fromStep onwards to 'pending'
     const steps: PipelineStep[] = history.steps.map((s, i) => {

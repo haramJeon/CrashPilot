@@ -120,6 +120,7 @@ export default function CrashDetail() {
     } catch (e: any) { console.error(e); }
   };
 
+
   const isRunning = steps.some((s) => s.status === 'running');
   const isAwaitingAI = steps.some((s) => s.status === 'awaiting');
 
@@ -179,7 +180,7 @@ export default function CrashDetail() {
           <div className="detail-meta">
             <span>Version: <code className="branch-tag">{crash.swVersion}</code></span>
 
-            {/* Release tag selector */}
+            {/* Release tag selector — controls checkout, not PR */}
             <span className="ref-selector-wrap">
               Branch:&nbsp;
               {refEditing ? (
@@ -212,6 +213,33 @@ export default function CrashDetail() {
                 </span>
               )}
             </span>
+
+            {/* PR base branch — from tag→branch mapping, used only for PR creation */}
+            {crash.releaseTag && (
+              <span className="ref-selector-wrap">
+                PR Branch:&nbsp;
+                {prBaseEditing ? (
+                  <span className="ref-selector">
+                    <input
+                      className="pr-base-input"
+                      value={prBaseInput}
+                      onChange={(e) => setPrBaseInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') savePrBaseBranch(); if (e.key === 'Escape') setPrBaseEditing(false); }}
+                      autoFocus
+                    />
+                    <button className="branch-btn" onClick={savePrBaseBranch} title="Save"><Check size={12} /></button>
+                    <button className="branch-btn branch-btn-cancel" onClick={() => setPrBaseEditing(false)} title="Cancel"><X size={12} /></button>
+                  </span>
+                ) : (
+                  <span className="ref-display">
+                    {prBaseLoading
+                      ? <Loader size={12} className="spinning" />
+                      : <code className="branch-tag">{prBaseBranch ?? '—'}</code>}
+                    <button className="branch-edit-btn" onClick={() => setPrBaseEditing(true)} title="Edit PR base branch"><Pencil size={12} /></button>
+                  </span>
+                )}
+              </span>
+            )}
 
             <span>{crash.region || ''}</span>
             <span>{new Date(crash.receivedAt).toLocaleString('ko-KR')}</span>
@@ -253,33 +281,6 @@ export default function CrashDetail() {
         {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
-
-            {/* PR Base Branch row */}
-            {crash.releaseTag && (
-              <div className="pr-base-row">
-                <span className="pr-base-label">PR Base Branch:</span>
-                {prBaseEditing ? (
-                  <>
-                    <input
-                      className="pr-base-input"
-                      value={prBaseInput}
-                      onChange={(e) => setPrBaseInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') savePrBaseBranch(); if (e.key === 'Escape') setPrBaseEditing(false); }}
-                      autoFocus
-                    />
-                    <button className="branch-btn" onClick={savePrBaseBranch} title="Save"><Check size={12} /></button>
-                    <button className="branch-btn branch-btn-cancel" onClick={() => setPrBaseEditing(false)} title="Cancel"><X size={12} /></button>
-                  </>
-                ) : (
-                  <>
-                    {prBaseLoading
-                      ? <Loader size={12} className="spinning" />
-                      : <code className="branch-tag">{prBaseBranch ?? '—'}</code>}
-                    <button className="branch-edit-btn" onClick={() => setPrBaseEditing(true)} title="Edit mapping"><Pencil size={12} /></button>
-                  </>
-                )}
-              </div>
-            )}
 
             {isAwaitingAI && (
               <div className="ai-prompt-box">

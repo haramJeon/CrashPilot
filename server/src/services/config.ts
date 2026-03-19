@@ -2,8 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AppConfig, Platform } from '../types';
+import { getAppRoot } from '../utils/appPaths';
 
-const CONFIG_PATH = path.join(__dirname, '../../../config.json');
+const CONFIG_PATH = path.join(getAppRoot(), 'config.json');
 
 export function getCurrentPlatform(): Platform {
   return os.platform() === 'darwin' ? 'macos' : 'windows';

@@ -5,7 +5,9 @@ import { Octokit } from '@octokit/rest';
 import { loadConfig } from './config';
 import { CrashAnalysis } from '../types';
 
-const TAG_BRANCH_MAP_PATH = path.join(__dirname, '../../../data/tag-branch-map.json');
+import { getAppRoot } from '../utils/appPaths';
+
+const TAG_BRANCH_MAP_PATH = path.join(getAppRoot(), 'data/tag-branch-map.json');
 function loadTagBranchMap(): Record<string, string> {
   try {
     if (fs.existsSync(TAG_BRANCH_MAP_PATH)) return JSON.parse(fs.readFileSync(TAG_BRANCH_MAP_PATH, 'utf-8'));

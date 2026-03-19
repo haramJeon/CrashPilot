@@ -1,15 +1,21 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
-import path from 'path';
+import { getAppRoot } from './utils/appPaths';
 import { configRouter } from './routes/config';
 import { gitRouter } from './routes/git';
 import { crashRouter } from './routes/crash';
 import { pipelineRouter } from './routes/pipeline';
 
 dotenv.config();
+
+// Ensure data/ directory exists next to the executable (or project root in dev)
+const dataDir = path.join(getAppRoot(), 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const app = express();
 const server = http.createServer(app);
@@ -21,7 +27,7 @@ app.use(cors());
 app.use(express.json());
 
 // Serve React build in production
-const clientDist = path.join(__dirname, '../../client/dist');
+const clientDist = path.join(getAppRoot(), 'client/dist');
 app.use(express.static(clientDist));
 
 // API routes

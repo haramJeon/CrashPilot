@@ -9,9 +9,10 @@ import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodu
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
 import { loadConfig } from '../services/config';
+import { getAppRoot } from '../utils/appPaths';
 import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory, PipelineState } from '../types';
 
-const HISTORY_DIR = path.join(__dirname, '../../../data/pipeline-runs');
+const HISTORY_DIR = path.join(getAppRoot(), 'data/pipeline-runs');
 
 function saveHistory(history: PipelineRunHistory): void {
   if (!fs.existsSync(HISTORY_DIR)) fs.mkdirSync(HISTORY_DIR, { recursive: true });

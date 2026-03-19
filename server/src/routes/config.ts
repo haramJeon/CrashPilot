@@ -4,16 +4,24 @@ import { fetchSoftwares } from '../services/crashReportServer';
 
 export const configRouter = Router();
 
+const MASK = '••••••••';
+
 configRouter.get('/', (_req, res) => {
   const config = loadConfig();
   const masked = {
     ...config,
+    crashDb: {
+      ...config.crashDb,
+      user:     config.crashDb.user     ? MASK : '',
+      password: config.crashDb.password ? MASK : '',
+    },
     claude: {
-      apiKey: config.claude.apiKey ? '••••••••' : '',
+      ...config.claude,
+      apiKey: config.claude.apiKey ? MASK : '',
     },
     github: {
       ...config.github,
-      token: config.github.token ? '••••••••' : '',
+      token: config.github.token ? MASK : '',
     },
   };
   res.json(masked);
@@ -37,12 +45,10 @@ configRouter.post('/', (req, res) => {
   const current = loadConfig();
   const incoming = req.body;
 
-  if (incoming.claude?.apiKey === '••••••••') {
-    incoming.claude.apiKey = current.claude.apiKey;
-  }
-  if (incoming.github?.token === '••••••••') {
-    incoming.github.token = current.github.token;
-  }
+  if (incoming.claude?.apiKey === MASK)      incoming.claude.apiKey      = current.claude.apiKey;
+  if (incoming.github?.token === MASK)       incoming.github.token       = current.github.token;
+  if (incoming.crashDb?.user === MASK)       incoming.crashDb.user       = current.crashDb.user;
+  if (incoming.crashDb?.password === MASK)   incoming.crashDb.password   = current.crashDb.password;
 
   const merged = { ...current, ...incoming };
   saveConfig(merged);

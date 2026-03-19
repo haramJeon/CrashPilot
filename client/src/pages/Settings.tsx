@@ -157,7 +157,7 @@ export default function Settings() {
           </div>
           <div className="field">
             <label>Crash DB User</label>
-            <input value={config.crashDb.user} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, user: e.target.value } })} placeholder="root" />
+            <input type="password" value={config.crashDb.user} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, user: e.target.value } })} placeholder="root" />
           </div>
           <div className="field">
             <label>Crash DB Password</label>

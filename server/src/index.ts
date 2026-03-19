@@ -13,6 +13,22 @@ import { pipelineRouter } from './routes/pipeline';
 
 dotenv.config();
 
+// ── File logger (writes next to exe so errors are visible even without console) ──
+const logPath = path.join(getAppRoot(), 'crashpilot.log');
+function writeLog(level: string, ...args: any[]) {
+  const line = `[${new Date().toISOString()}] [${level}] ${args.map(String).join(' ')}\n`;
+  process.stdout.write(line);
+  try { fs.appendFileSync(logPath, line); } catch { /* ignore if log write fails */ }
+}
+
+// Catch unhandled errors so the process doesn't silently die
+process.on('uncaughtException', (err) => {
+  writeLog('FATAL', 'uncaughtException:', err.stack || err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  writeLog('FATAL', 'unhandledRejection:', reason instanceof Error ? reason.stack : String(reason));
+});
+
 // Ensure data/ directory exists next to the executable (or project root in dev)
 const dataDir = path.join(getAppRoot(), 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });

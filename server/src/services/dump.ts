@@ -176,29 +176,92 @@ function downloadFile(url: string, dest: string, onLog?: (line: string) => void)
   });
 }
 
+// ── Windows: CDB auto-install via winget ──
+async function installCdbViaWinget(onLog?: (line: string) => void): Promise<boolean> {
+  return new Promise((resolve) => {
+    // Check winget is available
+    try {
+      execSync('winget --version', { encoding: 'utf-8', timeout: 5000 });
+    } catch {
+      onLog?.('[CDB] winget not found — cannot auto-install. Please install Windows Debugging Tools manually.');
+      resolve(false);
+      return;
+    }
+
+    onLog?.('[CDB] CDB not found. Installing Windows Debugging Tools via winget...');
+    onLog?.('[CDB] This may take several minutes and requires an internet connection.');
+    onLog?.('[CDB] Running: winget install --id Microsoft.WindowsSDK.10.0.18362 --silent --accept-package-agreements --accept-source-agreements');
+
+    const proc = spawn('winget', [
+      'install',
+      '--id', 'Microsoft.WindowsSDK.10.0.18362',
+      '--silent',
+      '--accept-package-agreements',
+      '--accept-source-agreements',
+    ], { windowsHide: false });
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim();
+        if (t) onLog?.(`[winget] ${t}`);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim();
+        if (t) onLog?.(`[winget] ${t}`);
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        onLog?.('[CDB] Installation complete.');
+        resolve(true);
+      } else {
+        onLog?.(`[CDB] winget exited with code ${code}. Installation may have failed or requires admin rights.`);
+        resolve(false);
+      }
+    });
+
+    proc.on('error', (err) => {
+      onLog?.(`[CDB] Failed to launch winget: ${err.message}`);
+      resolve(false);
+    });
+  });
+}
+
 // ── Windows: CDB analysis ──
 // Default CDB path installed by Windows SDK / WinDbg
 const DEFAULT_CDB_PATH = 'C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe';
 
-function analyzeDumpWindows(
+async function analyzeDumpWindows(
   dumpPath: string,
   pdbDir: string,
   onLog?: (line: string) => void
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const config = loadConfig();
-    const { symbolPath } = config.debugger.windows;
-    const cdbPath = config.debugger.windows.cdbPath || DEFAULT_CDB_PATH;
+  // Re-read config after potential install so cdbPath is up-to-date
+  let cfg = loadConfig();
+  let cdbPath = cfg.debugger.windows.cdbPath || DEFAULT_CDB_PATH;
 
-    if (!fs.existsSync(cdbPath)) {
-      reject(new Error(
+  if (!fs.existsSync(cdbPath)) {
+    const installed = await installCdbViaWinget(onLog);
+    cfg = loadConfig(); // re-read in case user updated path during install
+    cdbPath = cfg.debugger.windows.cdbPath || DEFAULT_CDB_PATH;
+    if (!installed || !fs.existsSync(cdbPath)) {
+      throw new Error(
         `CDB not found at: ${cdbPath}\n` +
-        `Install Windows Debugging Tools via:\n` +
-        `  winget install Microsoft.WindowsSDK.10.0.18362\n` +
-        `Default path: ${DEFAULT_CDB_PATH}`
-      ));
-      return;
+        `Auto-install failed or was cancelled.\n` +
+        `Please install manually: winget install Microsoft.WindowsSDK.10.0.18362\n` +
+        `Then update the CDB path in Settings.`
+      );
     }
+  }
+
+  const { symbolPath } = cfg.debugger.windows;
+
+  return new Promise((resolve, reject) => {
 
     // Symbol path: local PDBs first, then MS public symbol server with local cache.
     // C:\Symbols acts as a local cache — ntdll.pdb etc. are downloaded once and reused.

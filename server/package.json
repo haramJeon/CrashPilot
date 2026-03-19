@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "pkg": "npx @yao-pkg/pkg . --compress GZip --out-path ../release"
+    "pkg": "npx @yao-pkg/pkg . --out-path ../release"
   },
   "pkg": {
     "scripts": ["dist/**/*.js"],

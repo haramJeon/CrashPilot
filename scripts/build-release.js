@@ -25,20 +25,30 @@ const releaseDir = path.join(root, 'release');
 const clientSrc = path.join(root, 'client', 'dist');
 const clientDest = path.join(releaseDir, 'client', 'dist');
 
-// ── Parse --platform flag ─────────────────────────────────────────────────
+// ── Determine targets for current OS (cross-compile not supported by pkg) ─
+// pkg cannot cross-compile: build Windows exe on Windows, Mac binary on Mac.
+const os = require('os');
+
 const platformArg = (() => {
   const idx = process.argv.indexOf('--platform');
   return idx !== -1 ? process.argv[idx + 1] : null;
 })();
 
-const targets = [];
-if (!platformArg || platformArg === 'win')  targets.push('node20-win-x64');
-if (!platformArg || platformArg === 'mac')  targets.push('node20-mac-x64', 'node20-mac-arm64');
-
-if (targets.length === 0) {
-  console.error('Unknown --platform value. Use "win" or "mac".');
-  process.exit(1);
+function defaultTargets() {
+  const p = os.platform();
+  if (p === 'win32')  return ['node20-win-x64'];
+  if (p === 'darwin') return ['node20-mac-x64', 'node20-mac-arm64'];
+  return ['node20-linux-x64'];
 }
+
+const targets = (() => {
+  if (!platformArg) return defaultTargets();
+  if (platformArg === 'win')   return ['node20-win-x64'];
+  if (platformArg === 'mac')   return ['node20-mac-x64', 'node20-mac-arm64'];
+  if (platformArg === 'linux') return ['node20-linux-x64'];
+  console.error('Unknown --platform value. Use "win", "mac", or "linux".');
+  process.exit(1);
+})();
 
 // ── Helper ────────────────────────────────────────────────────────────────
 function run(cmd, cwd) {
@@ -60,23 +70,26 @@ console.log('\n=== Cleaning release/ ===');
 if (fs.existsSync(releaseDir)) fs.rmSync(releaseDir, { recursive: true });
 fs.mkdirSync(releaseDir, { recursive: true });
 
-// ── 2. Build React client ─────────────────────────────────────────────────
+// ── 2. Install dependencies ───────────────────────────────────────────────
+console.log('\n=== Installing client dependencies ===');
+run('npm install', path.join(root, 'client'));
+
+console.log('\n=== Installing server dependencies (full, for tsc) ===');
+run('npm install', path.join(root, 'server'));
+
+// ── 3. Build React client ─────────────────────────────────────────────────
 console.log('\n=== Building React client ===');
 run('npm run build', path.join(root, 'client'));
 
-// ── 3. Build TypeScript server ────────────────────────────────────────────
+// ── 4. Build TypeScript server ────────────────────────────────────────────
 console.log('\n=== Building TypeScript server ===');
 run('npm run build', path.join(root, 'server'));
 
-// ── 4. Install server prod dependencies (needed by pkg) ───────────────────
-console.log('\n=== Installing server dependencies ===');
-run('npm install --omit=dev', path.join(root, 'server'));
-
 // ── 5. Package with @yao-pkg/pkg ─────────────────────────────────────────
 console.log(`\n=== Packaging executables (${targets.join(', ')}) ===`);
-const targetFlag = targets.map(t => `--target ${t}`).join(' ');
+const targetFlag = `--target ${targets.join(',')}`;
 run(
-  `npx @yao-pkg/pkg . --compress GZip ${targetFlag} --out-path ../release`,
+  `npx @yao-pkg/pkg . ${targetFlag} --out-path ../release`,
   path.join(root, 'server')
 );
 

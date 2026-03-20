@@ -42,7 +42,6 @@ function decryptValue(value: string): string {
 /** Fields encrypted in config.json */
 const SENSITIVE_FIELDS: { section: keyof AppConfig; key: string }[] = [
   { section: 'claude',   key: 'apiKey' },
-  { section: 'github',   key: 'token' },
 ];
 
 function encryptConfig(config: AppConfig): any {
@@ -80,9 +79,6 @@ const DEFAULT_CONFIG: AppConfig = {
   claude: {
     apiKey: '',
     model: 'claude-sonnet-4-6',
-  },
-  github: {
-    token: '',
   },
   debugger: {
     windows: {
@@ -126,7 +122,6 @@ export function loadConfig(): AppConfig {
         ...decrypted,
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...decrypted.crashReportServer },
         claude: { ...DEFAULT_CONFIG.claude, ...decrypted.claude },
-        github: { ...DEFAULT_CONFIG.github, ...decrypted.github },
         debugger: {
           windows: { ...DEFAULT_CONFIG.debugger.windows, ...decrypted.debugger?.windows },
           macos: { ...DEFAULT_CONFIG.debugger.macos, ...decrypted.debugger?.macos },

@@ -75,9 +75,6 @@ export interface AppConfig {
     apiKey: string;
     model: string;
   };
-  github: {
-    token: string;
-  };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string; // local dir where release zips are extracted (PDBs + crash dumps)
   buildNetworkBaseDir: string; // UNC base path to release zips, e.g. \\10.100.1.20\Build_Repository\Product_Release

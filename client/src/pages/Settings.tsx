@@ -177,15 +177,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* GitHub */}
-        <div className="settings-section">
-          <h3>GitHub</h3>
-          <div className="field">
-            <label>Personal Access Token</label>
-            <input type="password" value={config.github.token} onChange={(e) => update('github', 'token', e.target.value)} placeholder="ghp_..." />
-          </div>
-        </div>
-
         {/* Git */}
         <div className="settings-section">
           <h3>Git Repository</h3>

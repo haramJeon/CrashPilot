@@ -15,9 +15,8 @@ function loadTagBranchMap(): Record<string, string> {
   return {};
 }
 
-/** Get auth token: git credential manager first (same as push), fall back to config token. */
-function resolveGitHubToken(): string {
-  // Prefer the token git itself uses for pushes (Windows Credential Manager, gh CLI, etc.)
+/** Get auth token from local git credential manager (same credential git push uses). */
+export function resolveGitHubToken(): string {
   try {
     const out = execSync('git credential fill', {
       input: 'protocol=https\nhost=github.com\n',
@@ -27,10 +26,7 @@ function resolveGitHubToken(): string {
     const m = out.match(/^password=(.+)$/m);
     if (m) return m[1].trim();
   } catch { /* ignore */ }
-
-  // Fall back to manually configured token
-  const config = loadConfig();
-  return config.github.token || '';
+  return '';
 }
 
 function getOctokit(): Octokit {

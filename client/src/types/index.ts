@@ -68,9 +68,6 @@ export interface AppConfig {
     apiKey: string;
     model: string;
   };
-  github: {
-    token: string;
-  };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string;
   buildNetworkBaseDir: string;

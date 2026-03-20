@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Router } from 'express';
 import { listRemoteRefs, findMatchingRefs } from '../services/git';
-import { findNearestBranchForTag } from '../services/github';
+import { findNearestBranchForTag, resolveGitHubToken } from '../services/github';
 import { Octokit } from '@octokit/rest';
 import { loadConfig } from '../services/config';
 import { getAppRoot } from '../utils/appPaths';
@@ -57,15 +57,12 @@ gitRouter.get('/pr-base-branch', async (req, res) => {
 
   // Auto-detect via GitHub API
   const config = loadConfig();
-  const token = config.github?.token;
-  if (!token) return res.json({ branch: null, source: 'none' });
-
   const repoUrl = config.git?.repoUrl || '';
   const m = repoUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
   if (!m) return res.json({ branch: null, source: 'none' });
 
   const [, owner, repo] = m;
-  const octokit = new Octokit({ auth: token });
+  const octokit = new Octokit({ auth: resolveGitHubToken() });
   const branch = await findNearestBranchForTag(octokit, owner, repo.replace(/\.git$/, ''), tag);
   res.json({ branch, source: branch ? 'detected' : 'none' });
 });

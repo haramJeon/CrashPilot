@@ -14,10 +14,6 @@ configRouter.get('/', (_req, res) => {
       ...config.claude,
       apiKey: config.claude.apiKey ? MASK : '',
     },
-    github: {
-      ...config.github,
-      token: config.github.token ? MASK : '',
-    },
   };
   res.json(masked);
 });
@@ -41,7 +37,6 @@ configRouter.post('/', (req, res) => {
   const incoming = req.body;
 
   if (incoming.claude?.apiKey === MASK)      incoming.claude.apiKey      = current.claude.apiKey;
-  if (incoming.github?.token === MASK)       incoming.github.token       = current.github.token;
 
   const merged = { ...current, ...incoming };
   saveConfig(merged);
@@ -57,7 +52,6 @@ configRouter.get('/validate', (_req, res) => {
   if (!config.claude.apiKey) issues.push('Claude API Key is missing');
   if (!config.git.repoBaseDir) issues.push('Git Clone Base Directory is missing');
   if (!config.git.repoUrl) issues.push('Git Repository URL is missing');
-  if (!config.github.token) issues.push('GitHub Token is missing');
 
   if (platform === 'windows') {
     if (!config.debugger.windows.cdbPath) issues.push('CDB Path is missing');

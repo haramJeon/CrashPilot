@@ -7,3 +7,6 @@ Thumbs.db
 config.json
 dumps/
 data/
+release/
+*.zip
+*.exe

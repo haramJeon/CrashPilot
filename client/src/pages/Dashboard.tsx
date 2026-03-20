@@ -269,7 +269,7 @@ export default function Dashboard() {
                   <th>Subject</th>
                   <th>Version</th>
                   <th>Tag</th>
-                  <th>Exception</th>
+                  <th>OS</th>
                   <th>Region</th>
                   <th>Date</th>
                   <th>Status</th>
@@ -283,7 +283,9 @@ export default function Dashboard() {
                     <td className="crash-subject">{crash.subject}</td>
                     <td><code className="branch-tag">{crash.swVersion}</code></td>
                     <td><TagCell crash={crash} onUpdate={updateTag} /></td>
-                    <td className="crash-exception">{crash.exceptionCode || crash.bugcheck || '—'}</td>
+                    <td className="crash-os">
+                      {crash.osType === 'windows' ? '🪟 Windows' : crash.osType === 'macos' ? '🍎 macOS' : '—'}
+                    </td>
                     <td className="crash-region">{crash.region || '—'}</td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td><StatusBadge status={crash.status} /></td>

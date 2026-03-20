@@ -8,6 +8,7 @@ export interface CrashReport {
   dumpUrl: string;           // file_link
   exceptionCode?: string;    // EXCEPTION_CODE_STR
   bugcheck?: string;         // BUGCHECK_STR
+  osType?: 'windows' | 'macos'; // derived from dumpUrl / exception fields
   region?: string;
   country?: string;
   serialNo?: string;

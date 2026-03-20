@@ -7,6 +7,7 @@ export interface CrashReport {
   dumpUrl: string;
   exceptionCode?: string;
   bugcheck?: string;
+  osType?: 'windows' | 'macos';
   region?: string;
   country?: string;
   serialNo?: string;

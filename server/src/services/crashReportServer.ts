@@ -77,17 +77,31 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
   );
 }
 
+function detectOsType(dumpUrl: string, exceptionCode?: string, bugcheck?: string): 'windows' | 'macos' | undefined {
+  if (bugcheck) return 'windows';
+  const url = dumpUrl.toLowerCase();
+  if (url.endsWith('.dmp')) return 'windows';
+  if (url.endsWith('.ips') || url.endsWith('.crash') || url.endsWith('.diag')) return 'macos';
+  if (exceptionCode?.startsWith('EXC_')) return 'macos';
+  if (exceptionCode && /^0x/i.test(exceptionCode)) return 'windows';
+  return undefined;
+}
+
 function mapReport(r: any, softwareId: number): CrashReport {
   const swVersion = r.sw_version || r.version || '';
+  const dumpUrl = r.file_link || r.fileLink || '';
+  const exceptionCode = r.EXCEPTION_CODE_STR || r.exceptionCode;
+  const bugcheck = r.BUGCHECK_STR || r.bugcheck;
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
     swVersion,
     releaseTag: '',
     receivedAt: r.date_created || r.date || new Date().toISOString(),
-    dumpUrl: r.file_link || r.fileLink || '',
-    exceptionCode: r.EXCEPTION_CODE_STR || r.exceptionCode,
-    bugcheck: r.BUGCHECK_STR || r.bugcheck,
+    dumpUrl,
+    exceptionCode,
+    bugcheck,
+    osType: detectOsType(dumpUrl, exceptionCode, bugcheck),
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,
@@ -99,15 +113,19 @@ function mapReport(r: any, softwareId: number): CrashReport {
 }
 
 function mapReportDetail(r: ApiReportDetail): CrashReport {
+  const dumpUrl = r.file_link || r.fileLink || '';
+  const exceptionCode = r.EXCEPTION_CODE_STR;
+  const bugcheck = r.BUGCHECK_STR;
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
     swVersion: r.sw_version || r.swVersion || r.version || '',
     releaseTag: '',
     receivedAt: r.date_created || r.dateCreated || r.date || new Date().toISOString(),
-    dumpUrl: r.file_link || r.fileLink || '',
-    exceptionCode: r.EXCEPTION_CODE_STR,
-    bugcheck: r.BUGCHECK_STR,
+    dumpUrl,
+    exceptionCode,
+    bugcheck,
+    osType: detectOsType(dumpUrl, exceptionCode, bugcheck),
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,

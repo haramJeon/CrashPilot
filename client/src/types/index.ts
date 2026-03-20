@@ -75,6 +75,8 @@ export interface AppConfig {
   };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string;
+  buildNetworkBaseDir: string;
+  softwareBuildPaths: Record<string, string>;
   git: {
     repoUrl: string;
     repoBaseDir: string;

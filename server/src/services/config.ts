@@ -71,6 +71,8 @@ function decryptConfig(raw: any): any {
 
 const DEFAULT_CONFIG: AppConfig = {
   releaseBuildBaseDir: '',
+  buildNetworkBaseDir: '',
+  softwareBuildPaths: {},
   crashReportServer: {
     url: 'http://rnd3.meditlink.com:5001',
     softwareIds: [],

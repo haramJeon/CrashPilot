@@ -8,9 +8,10 @@ import { loadConfig } from './config';
 import { getCurrentPlatform } from './config';
 
 /**
- * Prepares a local working directory for this software version's crash dumps.
- * Dump files are downloaded from the crash report's fileLink (dumpUrl) in the next step.
- * Returns the local directory path.
+ * Ensures the release build zip is extracted locally (PDB files).
+ * Network zip: {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/Windows/Build/{version}_Release.zip
+ * Extracted to: {releaseBuildBaseDir}/{appFolder}/{version}_Release/
+ * Returns the local extract directory path.
  */
 export async function downloadPdbFiles(
   softwareId: number,
@@ -19,17 +20,50 @@ export async function downloadPdbFiles(
 ): Promise<string> {
   const config = loadConfig();
   const localBaseDir = config.releaseBuildBaseDir;
-  if (!localBaseDir) throw new Error('Local Extract Directory is not configured in Settings.');
+  if (!localBaseDir) throw new Error('Release Build Base Directory is not configured in Settings.');
 
-  const workDir = path.join(localBaseDir, String(softwareId), swVersion);
-  if (!fs.existsSync(workDir)) {
-    fs.mkdirSync(workDir, { recursive: true });
-    onLog?.(`Created work directory: ${workDir}`);
-  } else {
-    onLog?.(`Using existing directory: ${workDir}`);
+  const networkBase = config.buildNetworkBaseDir;
+  const softwarePath = config.softwareBuildPaths?.[String(softwareId)] || '';
+  if (!networkBase || !softwarePath) {
+    throw new Error(`buildNetworkBaseDir or softwareBuildPaths[${softwareId}] not configured in Settings.`);
   }
 
-  return workDir;
+  // Use last segment of softwareBuildPaths as app folder name
+  // e.g. 'Medit Add-in\\Medit Orthodontic Suite' → 'Medit Orthodontic Suite'
+  const appFolder = softwarePath.split(/[/\\]/).filter(Boolean).pop() || String(softwareId);
+  const versionReleaseName = `${swVersion}_Release`;
+  const extractDir = path.join(localBaseDir, appFolder, versionReleaseName);
+
+  const alreadyExtracted = fs.existsSync(extractDir) &&
+    fs.readdirSync(extractDir).some(f => !fs.statSync(path.join(extractDir, f)).isDirectory());
+
+  if (alreadyExtracted) {
+    onLog?.(`Already extracted: ${extractDir}`);
+  } else {
+    const majorMinorPatch = swVersion.split('.').slice(0, 3).join('.');
+    const zipNetworkPath = path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', `${versionReleaseName}.zip`);
+
+    // Step 1: copy zip from network to local
+    const localZipPath = path.join(localBaseDir, appFolder, `${versionReleaseName}.zip`);
+    fs.mkdirSync(path.join(localBaseDir, appFolder), { recursive: true });
+    onLog?.(`> Copying zip from network...`);
+    onLog?.(`  ${zipNetworkPath}`);
+    onLog?.(`  → ${localZipPath}`);
+    fs.copyFileSync(zipNetworkPath, localZipPath);
+    onLog?.(`  Copy done.`);
+
+    // Step 2: extract locally
+    onLog?.(`> Extracting...`);
+    onLog?.(`  ${localZipPath} → ${extractDir}`);
+    fs.mkdirSync(extractDir, { recursive: true });
+    extractLargeZip(localZipPath, extractDir, onLog);
+
+    // Step 3: delete local zip
+    fs.unlinkSync(localZipPath);
+    onLog?.(`  Done — PDB files available at ${extractDir}`);
+  }
+
+  return extractDir;
 }
 
 /**

@@ -81,7 +81,9 @@ export interface AppConfig {
     repo: string;
   };
   debugger: DebuggerConfig;
-  releaseBuildBaseDir: string; // local dir where crash dumps are stored
+  releaseBuildBaseDir: string; // local dir where release zips are extracted (PDBs + crash dumps)
+  buildNetworkBaseDir: string; // UNC base path to release zips, e.g. \\10.100.1.20\Build_Repository\Product_Release
+  softwareBuildPaths: Record<string, string>; // softwareId → subfolder under buildNetworkBaseDir
   git: {
     repoUrl: string;        // e.g. https://github.com/org/repo.git
     repoBaseDir: string;    // base folder; each branch cloned into a subfolder

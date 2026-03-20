@@ -105,20 +105,48 @@ export default function Settings() {
       )}
 
       <div className="settings-grid">
-        {/* Local Storage */}
+        {/* Release Build */}
         <div className="settings-section">
-          <h3>Local Storage</h3>
+          <h3>Release Build</h3>
+          <div className="field">
+            <label>Build Network Base Directory</label>
+            <input
+              value={config.buildNetworkBaseDir}
+              onChange={(e) => setConfig({ ...config, buildNetworkBaseDir: e.target.value })}
+              placeholder={platform === 'macos' ? '//10.100.1.20/Build_Repository/Product_Release' : '\\\\10.100.1.20\\Build_Repository\\Product_Release'}
+            />
+            <p className="field-help">
+              UNC path to the product release repo.
+              Zip path: <code>{'{base}\\{softwarePath}\\{major.minor.patch}\\Windows\\Build\\{version}_Release.zip'}</code>
+            </p>
+          </div>
           <div className="field">
             <label>Local Extract Directory</label>
             <input
               value={config.releaseBuildBaseDir}
               onChange={(e) => setConfig({ ...config, releaseBuildBaseDir: e.target.value })}
-              placeholder={platform === 'macos' ? '/Users/you/crashpilot-dumps' : 'D:\\CrashPilotDumps'}
+              placeholder={platform === 'macos' ? '/Users/you/release-builds' : 'D:\\ReleaseCaches'}
             />
             <p className="field-help">
-              Crash dumps downloaded from fileLink are saved here.
+              Zips are extracted here as <code>{'{dir}\\{appFolder}\\{version}_Release\\'}</code>. Crash dumps saved under <code>crashes\{'{crashId}\\'}</code>
             </p>
           </div>
+          {softwares.length > 0 && (
+            <div className="field">
+              <label>Software Build Paths <span className="field-hint">(subfolder under Build Network Base)</span></label>
+              {softwares.map((sw) => (
+                <div className="tag-folder-row" key={sw.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ minWidth: 140, fontSize: 13, color: 'var(--text-secondary)' }}>{sw.name} <span className="field-hint">ID:{sw.id}</span></span>
+                  <input
+                    style={{ flex: 1 }}
+                    value={config.softwareBuildPaths?.[String(sw.id)] ?? ''}
+                    onChange={(e) => setConfig({ ...config, softwareBuildPaths: { ...(config.softwareBuildPaths ?? {}), [String(sw.id)]: e.target.value } })}
+                    placeholder="Medit Add-in\\Medit Orthodontic Suite"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Crash Report Server */}

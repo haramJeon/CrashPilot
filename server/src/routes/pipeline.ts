@@ -5,7 +5,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch, listRemoteRefs, findBestTag } from '../services/git';
+import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
 import { loadConfig } from '../services/config';
@@ -302,7 +302,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       const exceptionType = detail.exceptionCode || detail.bugcheck || 'Unknown Exception';
       releaseBranch = releaseBranch || detail.releaseTag || '';
       if (!releaseBranch) throw new Error('releaseTag is not set. Please set it from the Dashboard before running.');
-      updateCrashRecord(Number(crashId), { releaseTag: releaseBranch });
+      updateCrashRecord(Number(crashId), { releaseTag: releaseBranch, osType: detail.osType });
 
       steps[0].status = 'done';
       steps[0].message = `${detail.stackTraces.length + detail.mainStackTraces.length} frames - ${exceptionType}`;

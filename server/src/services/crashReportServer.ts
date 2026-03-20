@@ -77,31 +77,29 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
   );
 }
 
-function detectOsType(dumpUrl: string, exceptionCode?: string, bugcheck?: string): 'windows' | 'macos' | undefined {
-  if (bugcheck) return 'windows';
-  const url = dumpUrl.toLowerCase();
-  if (url.endsWith('.dmp')) return 'windows';
-  if (url.endsWith('.ips') || url.endsWith('.crash') || url.endsWith('.diag')) return 'macos';
-  if (exceptionCode?.startsWith('EXC_')) return 'macos';
-  if (exceptionCode && /^0x/i.test(exceptionCode)) return 'windows';
+// Determine OS from pcInfo (detail API only).
+// Looks for an entry whose type field contains "Windows" or "mac" (case-insensitive).
+function detectOsFromPcInfo(pcInfo: { type: string; key: string; value: string }[]): 'windows' | 'macos' | undefined {
+  for (const entry of pcInfo) {
+    const t = entry.type.toLowerCase();
+    if (t === 'windows') return 'windows';
+    if (t.includes('mac')) return 'macos';
+  }
   return undefined;
 }
 
 function mapReport(r: any, softwareId: number): CrashReport {
   const swVersion = r.sw_version || r.version || '';
-  const dumpUrl = r.file_link || r.fileLink || '';
-  const exceptionCode = r.EXCEPTION_CODE_STR || r.exceptionCode;
-  const bugcheck = r.BUGCHECK_STR || r.bugcheck;
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
     swVersion,
     releaseTag: '',
     receivedAt: r.date_created || r.date || new Date().toISOString(),
-    dumpUrl,
-    exceptionCode,
-    bugcheck,
-    osType: detectOsType(dumpUrl, exceptionCode, bugcheck),
+    dumpUrl: r.file_link || r.fileLink || '',
+    exceptionCode: r.EXCEPTION_CODE_STR || r.exceptionCode,
+    bugcheck: r.BUGCHECK_STR || r.bugcheck,
+    // osType not available from list API — populated later via fetchReportDetail
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,
@@ -113,19 +111,16 @@ function mapReport(r: any, softwareId: number): CrashReport {
 }
 
 function mapReportDetail(r: ApiReportDetail): CrashReport {
-  const dumpUrl = r.file_link || r.fileLink || '';
-  const exceptionCode = r.EXCEPTION_CODE_STR;
-  const bugcheck = r.BUGCHECK_STR;
   return {
     id: r.id,
     subject: r.mail_title || r.subject || `Crash #${r.id}`,
     swVersion: r.sw_version || r.swVersion || r.version || '',
     releaseTag: '',
     receivedAt: r.date_created || r.dateCreated || r.date || new Date().toISOString(),
-    dumpUrl,
-    exceptionCode,
-    bugcheck,
-    osType: detectOsType(dumpUrl, exceptionCode, bugcheck),
+    dumpUrl: r.file_link || r.fileLink || '',
+    exceptionCode: r.EXCEPTION_CODE_STR,
+    bugcheck: r.BUGCHECK_STR,
+    osType: detectOsFromPcInfo(r.pcInfo || []),
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,

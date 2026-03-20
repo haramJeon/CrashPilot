@@ -38,7 +38,12 @@ export function crashRouter(io: SocketIOServer): Router {
     };
     try {
       io.emit('status', { message: 'Fetching crash reports from server...' });
-      crashReports = await fetchAllNewReports(filter);
+      const [reports, softwares] = await Promise.all([
+        fetchAllNewReports(filter),
+        fetchSoftwares(),
+      ]);
+      const swMap = new Map(softwares.map((s) => [s.id, s.name]));
+      crashReports = reports.map((r) => ({ ...r, softwareName: swMap.get(r.softwareId) }));
       io.emit('crashes:updated', crashReports);
       res.json({ count: crashReports.length, crashes: crashReports });
 

@@ -129,9 +129,34 @@ if (fs.existsSync(configSrc)) {
 // ── 8. Create empty data/ dir ─────────────────────────────────────────────
 fs.mkdirSync(path.join(releaseDir, 'data'), { recursive: true });
 
+// ── 9. Create zip archive ─────────────────────────────────────────────────
+const { version } = require(path.join(root, 'package.json'));
+const folderName = `crashPilot_${version}`;
+const zipName = `${folderName}.zip`;
+const zipPath = path.join(root, zipName);
+const tempDir = path.join(root, folderName);
+
+console.log(`\n=== Creating ${zipName} ===`);
+
+// Copy release/ → crashPilot_{version}/ so the zip extracts to a named folder
+if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true });
+copyDir(releaseDir, tempDir);
+
+// Remove existing zip if present
+if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
+
+const platform = os.platform();
+if (platform === 'win32') {
+  run(`powershell -Command "Compress-Archive -Path '${folderName}' -DestinationPath '${zipName}' -Force"`, root);
+} else {
+  run(`zip -r "${zipName}" "${folderName}"`, root);
+}
+
+// Clean up temp folder
+fs.rmSync(tempDir, { recursive: true });
+
 // ── Done ──────────────────────────────────────────────────────────────────
 console.log('\n✓ Build complete!');
-console.log(`\nRelease files are in: ${releaseDir}`);
-console.log('\nDistribute the entire release/ folder.');
-console.log('Users double-click the executable for their platform.');
+console.log(`\nRelease archive: ${zipPath}`);
+console.log('Users extract the zip and double-click the executable for their platform.');
 console.log('The app opens at http://localhost:3001 in their default browser.\n');

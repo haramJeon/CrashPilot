@@ -8,6 +8,7 @@ export interface CrashReport {
   exceptionCode?: string;
   bugcheck?: string;
   osType?: 'windows' | 'macos';
+  issueKey?: string;
   region?: string;
   country?: string;
   serialNo?: string;

@@ -9,6 +9,7 @@ export interface CrashReport {
   exceptionCode?: string;    // EXCEPTION_CODE_STR
   bugcheck?: string;         // BUGCHECK_STR
   osType?: 'windows' | 'macos'; // derived from dumpUrl / exception fields
+  issueKey?: string;            // Jira issue key (e.g. APOS-753)
   region?: string;
   country?: string;
   serialNo?: string;
@@ -139,6 +140,7 @@ export interface ApiReport {
   country?: string;
   serial_no?: string;
   software_id?: number;
+  issue_key?: string;
   // camelCase (detail endpoint)
   swVersion?: string;
   fileLink?: string;

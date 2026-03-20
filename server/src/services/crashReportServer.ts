@@ -101,6 +101,7 @@ function mapReport(r: any, softwareId: number): CrashReport {
     exceptionCode: r.EXCEPTION_CODE_STR || r.exceptionCode,
     bugcheck: r.BUGCHECK_STR || r.bugcheck,
     // osType not available from list API — populated later via fetchReportDetail
+    issueKey: r.issue_key || r.issueKey,
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,
@@ -122,6 +123,7 @@ function mapReportDetail(r: ApiReportDetail): CrashReport {
     exceptionCode: r.EXCEPTION_CODE_STR,
     bugcheck: r.BUGCHECK_STR,
     osType: detectOsFromPcInfo(r.pcInfo || []),
+    issueKey: r.issue_key || r.issueKey,
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,

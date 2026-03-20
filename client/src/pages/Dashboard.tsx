@@ -154,10 +154,7 @@ export default function Dashboard() {
   useEffect(() => {
     apiGet<{ git: { softwareTagFolders: Record<string, string> } }>('/config')
       .then((cfg) => { tagFoldersRef.current = cfg.git.softwareTagFolders ?? {}; })
-      .catch(() => {})
-      .finally(() => {
-        apiGet<CrashReport[]>('/crash').then(autoPopulateTags).catch(() => {});
-      });
+      .catch(() => {});
     apiGet<ApiSoftware[]>('/crash/softwares').then(setSoftwares).catch(() => {});
     apiGet<number[]>('/pipeline/history').then((ids) => setHistoryIds(new Set(ids))).catch(() => {});
     const socket = socketRef.current;
@@ -168,6 +165,11 @@ export default function Dashboard() {
     socket.on('pipeline:error', (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)])));
     return () => { socket.off('crashes:updated'); socket.off('status'); socket.off('pipeline:complete'); socket.off('pipeline:error'); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (selectedSoftwareId === 0) { setCrashes([]); return; }
+    fetchCrashes();
+  }, [selectedSoftwareId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchCrashes = async () => {
     setLoading(true);
@@ -223,7 +225,7 @@ export default function Dashboard() {
         <div className="filter-group">
           <label>Software</label>
           <select value={selectedSoftwareId} onChange={(e) => setSelectedSoftwareId(Number(e.target.value))}>
-            <option value={0}>All</option>
+            <option value={0}>-- Select --</option>
             {softwares.map((sw) => (
               <option key={sw.id} value={sw.id}>{sw.name}</option>
             ))}
@@ -257,8 +259,17 @@ export default function Dashboard() {
         {crashes.length === 0 ? (
           <div className="empty-state">
             <Cpu size={48} />
-            <h3>No crash reports</h3>
-            <p>Select filters and click "Fetch Reports"</p>
+            {selectedSoftwareId === 0 ? (
+              <>
+                <h3>Select a software</h3>
+                <p>Choose a software from the dropdown to load crash reports</p>
+              </>
+            ) : (
+              <>
+                <h3>No crash reports</h3>
+                <p>No crashes found for the selected filters</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="table-container">
@@ -270,6 +281,7 @@ export default function Dashboard() {
                   <th>Version</th>
                   <th>Tag</th>
                   <th>OS</th>
+                  <th>Issue</th>
                   <th>Date</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -284,6 +296,11 @@ export default function Dashboard() {
                     <td><TagCell crash={crash} onUpdate={updateTag} /></td>
                     <td className="crash-os">
                       {crash.osType === 'windows' ? '🪟 Windows' : crash.osType === 'macos' ? '🍎 macOS' : '—'}
+                    </td>
+                    <td className="crash-issue">
+                      {crash.issueKey
+                        ? <a href={`https://meditcompany.atlassian.net/browse/${crash.issueKey}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{crash.issueKey}</a>
+                        : '—'}
                     </td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td><StatusBadge status={crash.status} /></td>

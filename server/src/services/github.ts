@@ -61,23 +61,15 @@ export async function findNearestBranchForTag(
       (res, done) => { done(); return res.data; }
     );
 
-    // Only consider release/ branches
-    const releaseBranches = branches.filter(b => b.name.startsWith('release/'));
-
     // Keyword derived from swName for branch name matching
-    // e.g. "APOS Touch" → ["apos", "touch"], require at least one word to match
+    // e.g. "APOS Touch" → "apos" / "touch", check any word matches
     const swKeywords = swName
       ? swName.toLowerCase().split(/[\s\-_]+/).filter(w => w.length > 1)
       : [];
 
     const candidates: { name: string; aheadBy: number; swMatch: boolean }[] = [];
 
-    for (const branch of releaseBranches) {
-      // If swName provided, skip branches that don't contain any keyword
-      const lowerName = branch.name.toLowerCase();
-      const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
-      if (swKeywords.length > 0 && !swMatch) continue;
-
+    for (const branch of branches) {
       try {
         const { data } = await octokit.repos.compareCommitsWithBasehead({
           owner,
@@ -86,6 +78,8 @@ export async function findNearestBranchForTag(
         });
         // Only consider branches that contain the tag commit
         if (data.status === 'ahead' || data.status === 'identical') {
+          const lowerName = branch.name.toLowerCase();
+          const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
           candidates.push({ name: branch.name, aheadBy: data.ahead_by, swMatch });
         }
       } catch { /* branch may not contain tag — skip */ }
@@ -93,8 +87,11 @@ export async function findNearestBranchForTag(
 
     if (candidates.length === 0) return null;
 
-    // Sort by fewest commits ahead (all candidates already match swName if provided)
-    candidates.sort((a, b) => a.aheadBy - b.aheadBy);
+    // Sort: sw-name-matching branches first, then by fewest commits ahead
+    candidates.sort((a, b) => {
+      if (a.swMatch !== b.swMatch) return a.swMatch ? -1 : 1;
+      return a.aheadBy - b.aheadBy;
+    });
 
     return candidates[0].name;
   } catch {
@@ -173,15 +170,8 @@ ${params.analysis.suggestedFix}
   // ── Collect repos that need PRs ─────────────────────────────────────────
   const targets: { owner: string; repo: string; dir: string; submoduleBranch?: string | null }[] = [];
 
-  // Parent repo: derive owner/repo from config or repoUrl
-  const parentUrl = config.git.repoUrl || '';
-  const parentParsed = parseGitHubOwnerRepo(parentUrl);
-
-  if (parentParsed) {
-    targets.push({ ...parentParsed, dir: params.repoDir || '' });
-  }
-
   // Submodule repos: find submodules that contain changed files
+  const changedSubmodulePaths = new Set<string>(); // normalized submodule paths that have changes
   if (params.repoDir) {
     const submoduleEntries = readSubmoduleEntries(params.repoDir);
     console.log(`[CrashPilot] Submodule entries in .gitmodules: ${JSON.stringify([...submoduleEntries.entries()])}`);
@@ -194,6 +184,7 @@ ${params.analysis.suggestedFix}
         const normSub = sub.replace(/\\/g, '/');
         if (norm.startsWith(normSub + '/') || norm === normSub) {
           changedSubmodules.set(sub, branch);
+          changedSubmodulePaths.add(normSub);
         }
       }
     }
@@ -206,6 +197,20 @@ ${params.analysis.suggestedFix}
       const parsed = parseGitHubOwnerRepo(subUrl);
       if (parsed) targets.push({ ...parsed, dir: subDir, submoduleBranch: subBranch });
     }
+  }
+
+  // Parent repo: only add if at least one changed file is NOT inside a submodule
+  const hasParentChanges = params.analysis.fixedFiles.some((f) => {
+    if (!params.repoDir) return true;
+    const norm = toRepoRelative(params.repoDir, f.path);
+    return ![...changedSubmodulePaths].some((sub) => norm.startsWith(sub + '/') || norm === sub);
+  });
+  const parentUrl = config.git.repoUrl || '';
+  const parentParsed = parseGitHubOwnerRepo(parentUrl);
+  if (parentParsed && hasParentChanges) {
+    targets.unshift({ ...parentParsed, dir: params.repoDir || '' });
+  } else if (parentParsed && !hasParentChanges) {
+    console.log(`[CrashPilot] Skipping parent repo PR — all changes are inside submodules`);
   }
 
   // ── Resolve base branch from Settings mapping ────────────────────────────

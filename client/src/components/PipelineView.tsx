@@ -82,7 +82,17 @@ export default function PipelineView({ steps, onRunAI, onRetry }: Props) {
               </button>
             )}
           </div>
-          {step.message && <div className="step-message">{step.message}</div>}
+          {step.message && (
+            <div className="step-message">
+              {step.message.split('\n').map((line, i) =>
+                line.startsWith('http') ? (
+                  <a key={i} href={line} target="_blank" rel="noreferrer" className="step-message-link">{line}</a>
+                ) : (
+                  <span key={i}>{line}</span>
+                )
+              )}
+            </div>
+          )}
           <StepLogs step={step} />
           {idx < steps.length - 1 && <div className="step-connector" />}
         </div>

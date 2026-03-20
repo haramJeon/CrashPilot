@@ -130,8 +130,6 @@ export default function Dashboard() {
   const [statusMsg, setStatusMsg] = useState('');
   const [selectedSoftwareId, setSelectedSoftwareId] = useState<number>(0);
   const [dateRange, setDateRange] = useState(defaultDateRange);
-  const [tagBranchMap, setTagBranchMap] = useState<Record<string, string>>({});
-  const [detecting, setDetecting] = useState(false);
   const navigate = useNavigate();
   const socketRef = useSocket();
   const tagFoldersRef = useRef<Record<string, string>>({});
@@ -168,9 +166,6 @@ export default function Dashboard() {
     return () => { socket.off('crashes:updated'); socket.off('status'); socket.off('pipeline:complete'); socket.off('pipeline:error'); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    apiGet<Record<string, string>>('/git/tag-branch-map').then(setTagBranchMap).catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (selectedSoftwareId === 0) { setCrashes([]); return; }
@@ -199,31 +194,6 @@ export default function Dashboard() {
       navigate(`/crash/${crash.id}`);
     } catch (e: unknown) {
       setStatusMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
-  const detectBranches = async () => {
-    setDetecting(true);
-    try {
-      // Collect unique tags not yet in map (tag → first matching swName)
-      const pending = new Map<string, string>();
-      for (const crash of crashes) {
-        if (crash.releaseTag && !tagBranchMap[crash.releaseTag] && !pending.has(crash.releaseTag)) {
-          pending.set(crash.releaseTag, crash.softwareName ?? '');
-        }
-      }
-      for (const [tag, swName] of pending) {
-        try {
-          let url = `/git/pr-base-branch?tag=${encodeURIComponent(tag)}`;
-          if (swName) url += `&swName=${encodeURIComponent(swName)}`;
-          const res = await apiGet<{ branch: string | null }>(url);
-          if (res.branch) {
-            setTagBranchMap((prev) => ({ ...prev, [tag]: res.branch! }));
-          }
-        } catch { /* skip individual failures */ }
-      }
-    } finally {
-      setDetecting(false);
     }
   };
 
@@ -274,10 +244,6 @@ export default function Dashboard() {
           <RefreshCw size={16} className={loading ? 'spinning' : ''} />
           {loading ? 'Fetching...' : 'Fetch Reports'}
         </button>
-        <button className="btn btn-secondary" onClick={detectBranches} disabled={detecting || crashes.length === 0} style={{ marginLeft: 'auto' }}>
-          <Search size={16} className={detecting ? 'spinning' : ''} />
-          {detecting ? 'Detecting...' : 'Detect Branch'}
-        </button>
       </div>
 
       {statusMsg && <div className="status-bar"><span>{statusMsg}</span></div>}
@@ -315,7 +281,6 @@ export default function Dashboard() {
                   <th>Subject</th>
                   <th>Version</th>
                   <th>Tag</th>
-                  <th>Branch</th>
                   <th>OS</th>
                   <th>Issue</th>
                   <th>Date</th>
@@ -330,9 +295,6 @@ export default function Dashboard() {
                     <td className="crash-subject">{crash.subject}</td>
                     <td><code className="branch-tag">{crash.swVersion}</code></td>
                     <td><TagCell crash={crash} onUpdate={updateTag} /></td>
-                    <td className="crash-branch">
-                      <code className="branch-tag">{(crash.releaseTag && tagBranchMap[crash.releaseTag]) || '—'}</code>
-                    </td>
                     <td className="crash-os">
                       {crash.osType === 'windows' ? '🪟 Windows' : crash.osType === 'macos' ? '🍎 macOS' : '—'}
                     </td>

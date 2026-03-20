@@ -200,7 +200,7 @@
 }
 
 .pr-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   color: var(--success);

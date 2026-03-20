@@ -362,10 +362,12 @@ export default function CrashDetail() {
             {analysis.prUrl && (
               <div className="detail-card pr-card">
                 <h3>Pull Request</h3>
-                <a href={analysis.prUrl} target="_blank" rel="noreferrer" className="pr-link">
-                  <ExternalLink size={16} />
-                  {analysis.prUrl}
-                </a>
+                {analysis.prUrl.split('\n').filter(Boolean).map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer" className="pr-link">
+                    <ExternalLink size={16} />
+                    {url}
+                  </a>
+                ))}
               </div>
             )}
           </>

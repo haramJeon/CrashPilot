@@ -267,7 +267,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
 
     const steps: PipelineStep[] = [
       { name: 'Load Stack Trace',   status: 'pending' }, // 0  auto
-      { name: 'Download PDB Files', status: 'pending' }, // 1  auto
+      { name: 'Prepare Work Dir',   status: 'pending' }, // 1  auto
       { name: 'Download Dump',      status: 'pending' }, // 2  auto
       { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3  auto
       { name: 'Run by AI',          status: 'pending' }, // 4  awaiting (gate)

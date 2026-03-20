@@ -41,8 +41,6 @@ function decryptValue(value: string): string {
 
 /** Fields encrypted in config.json */
 const SENSITIVE_FIELDS: { section: keyof AppConfig; key: string }[] = [
-  { section: 'crashDb',  key: 'password' },
-  { section: 'crashDb',  key: 'user' },
   { section: 'claude',   key: 'apiKey' },
   { section: 'github',   key: 'token' },
 ];
@@ -73,15 +71,6 @@ function decryptConfig(raw: any): any {
 
 const DEFAULT_CONFIG: AppConfig = {
   releaseBuildBaseDir: '',
-  buildNetworkBaseDir: '',
-  softwareBuildPaths: {},
-  crashDb: {
-    host: '10.100.1.46',
-    port: 3306,
-    user: 'root',
-    password: '',
-    database: 'crash_report',
-  },
   crashReportServer: {
     url: 'http://rnd3.meditlink.com:5001',
     softwareIds: [],
@@ -123,7 +112,6 @@ export function loadConfig(): AppConfig {
         ...DEFAULT_CONFIG,
         ...decrypted,
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...decrypted.crashReportServer },
-        crashDb: { ...DEFAULT_CONFIG.crashDb, ...decrypted.crashDb },
         claude: { ...DEFAULT_CONFIG.claude, ...decrypted.claude },
         github: { ...DEFAULT_CONFIG.github, ...decrypted.github },
         debugger: {

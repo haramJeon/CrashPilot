@@ -74,15 +74,6 @@ export interface AppConfig {
   };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string;
-  buildNetworkBaseDir: string;
-  softwareBuildPaths: Record<string, string>;
-  crashDb: {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-    database: string;
-  };
   git: {
     repoUrl: string;
     repoBaseDir: string;

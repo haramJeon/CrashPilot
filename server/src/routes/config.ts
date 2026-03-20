@@ -10,11 +10,6 @@ configRouter.get('/', (_req, res) => {
   const config = loadConfig();
   const masked = {
     ...config,
-    crashDb: {
-      ...config.crashDb,
-      user:     config.crashDb.user     ? MASK : '',
-      password: config.crashDb.password ? MASK : '',
-    },
     claude: {
       ...config.claude,
       apiKey: config.claude.apiKey ? MASK : '',
@@ -47,8 +42,6 @@ configRouter.post('/', (req, res) => {
 
   if (incoming.claude?.apiKey === MASK)      incoming.claude.apiKey      = current.claude.apiKey;
   if (incoming.github?.token === MASK)       incoming.github.token       = current.github.token;
-  if (incoming.crashDb?.user === MASK)       incoming.crashDb.user       = current.crashDb.user;
-  if (incoming.crashDb?.password === MASK)   incoming.crashDb.password   = current.crashDb.password;
 
   const merged = { ...current, ...incoming };
   saveConfig(merged);

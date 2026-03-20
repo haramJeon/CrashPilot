@@ -105,67 +105,19 @@ export default function Settings() {
       )}
 
       <div className="settings-grid">
-        {/* Release Build */}
+        {/* Local Storage */}
         <div className="settings-section">
-          <h3>Release Build</h3>
-          <div className="field">
-            <label>Build Network Base Directory</label>
-            <input
-              value={config.buildNetworkBaseDir}
-              onChange={(e) => setConfig({ ...config, buildNetworkBaseDir: e.target.value })}
-              placeholder={platform === 'macos' ? '//10.100.1.20/Build_Repository/Product_Release' : '\\\\10.100.1.20\\Build_Repository\\Product_Release'}
-            />
-            <p className="field-help">
-              UNC path to the product release repo.
-              Zip path: <code>{'{base}\\{softwarePath}\\{major.minor.patch}\\Windows\\Build\\{version}_Release.zip'}</code>
-            </p>
-          </div>
+          <h3>Local Storage</h3>
           <div className="field">
             <label>Local Extract Directory</label>
             <input
               value={config.releaseBuildBaseDir}
               onChange={(e) => setConfig({ ...config, releaseBuildBaseDir: e.target.value })}
-              placeholder={platform === 'macos' ? '/Users/you/release-builds' : 'D:\\ReleaseCaches'}
+              placeholder={platform === 'macos' ? '/Users/you/crashpilot-dumps' : 'D:\\CrashPilotDumps'}
             />
             <p className="field-help">
-              Zips are extracted here as <code>{'{dir}\\{version}_Release\\'}</code>. Crash dumps saved under <code>crashes\\{'{crashId}\\'}</code>
+              Crash dumps downloaded from fileLink are saved here.
             </p>
-          </div>
-          {softwares.length > 0 && (
-            <div className="field">
-              <label>Software Build Paths <span className="field-hint">(subfolder under Build Network Base)</span></label>
-              {softwares.map((sw) => (
-                <div className="tag-folder-row" key={sw.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ minWidth: 140, fontSize: 13, color: 'var(--text-secondary)' }}>{sw.name} <span className="field-hint">ID:{sw.id}</span></span>
-                  <input
-                    style={{ flex: 1 }}
-                    value={config.softwareBuildPaths?.[String(sw.id)] ?? ''}
-                    onChange={(e) => setConfig({ ...config, softwareBuildPaths: { ...(config.softwareBuildPaths ?? {}), [String(sw.id)]: e.target.value } })}
-                    placeholder="Medit Add-in\\Medit Orthodontic Suite"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="field">
-            <label>Crash DB Host</label>
-            <input value={config.crashDb.host} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, host: e.target.value } })} placeholder="10.100.1.46" />
-          </div>
-          <div className="field">
-            <label>Crash DB Port</label>
-            <input value={String(config.crashDb.port)} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, port: Number(e.target.value) } })} placeholder="3306" />
-          </div>
-          <div className="field">
-            <label>Crash DB User</label>
-            <input type="password" value={config.crashDb.user} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, user: e.target.value } })} placeholder="root" />
-          </div>
-          <div className="field">
-            <label>Crash DB Password</label>
-            <input type="password" value={config.crashDb.password} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, password: e.target.value } })} placeholder="password" />
-          </div>
-          <div className="field">
-            <label>Crash DB Name</label>
-            <input value={config.crashDb.database} onChange={(e) => setConfig({ ...config, crashDb: { ...config.crashDb, database: e.target.value } })} placeholder="crash_report" />
           </div>
         </div>
 

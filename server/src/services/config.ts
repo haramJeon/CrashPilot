@@ -23,7 +23,22 @@ function decryptConfig(raw: any): any {
 const DEFAULT_CONFIG: AppConfig = {
   releaseBuildBaseDir: '',
   buildNetworkBaseDir: '',
-  softwareBuildPaths: {},
+  softwareBuildPaths: {
+    "3": "Medit Add-in\\Medit Smile Design",
+    "4": "Medit Add-in\\Medit Ortho Simulation",
+    "5": "Medit Add-in\\Medit Design",
+    "7": "Medit Add-in\\Medit Crown Fit",
+    "8": "Medit Add-in\\Medit Model Builder",
+    "10": "Medit Add-in\\Medit Calibration Wizard",
+    "11": "Medit Add-in\\Medit DCM Converter",
+    "12": "Medit Add-in\\Medit Splints",
+    "13": "Medit Add-in\\Medit Margin Lines",
+    "14": "Medit Add-in\\Medit Occlusion Analyzer",
+    "15": "Medit Add-in\\Medit ClinicCAD",
+    "16": "Medit Add-in\\Medit Caries Detection",
+    "17": "Medit Add-in\\Medit Orthodontic Suite",
+    "18": "Medit Add-in\\Medit Surgical Guide"
+  },
   crashReportServer: {
     url: 'http://rnd3.meditlink.com:5001',
     softwareIds: [],

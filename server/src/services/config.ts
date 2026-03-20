@@ -105,12 +105,25 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+/** Fill empty dir fields with defaults relative to the app root (exe directory). */
+function applyDirDefaults(config: AppConfig): AppConfig {
+  const appRoot = getAppRoot();
+  return {
+    ...config,
+    releaseBuildBaseDir: config.releaseBuildBaseDir || path.join(appRoot, 'pdb'),
+    git: {
+      ...config.git,
+      repoBaseDir: config.git.repoBaseDir || path.join(appRoot, 'repository'),
+    },
+  };
+}
+
 export function loadConfig(): AppConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
       const decrypted = decryptConfig(raw);
-      return {
+      const merged: AppConfig = {
         ...DEFAULT_CONFIG,
         ...decrypted,
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...decrypted.crashReportServer },
@@ -122,11 +135,12 @@ export function loadConfig(): AppConfig {
         },
         git: { ...DEFAULT_CONFIG.git, ...decrypted.git },
       };
+      return applyDirDefaults(merged);
     }
   } catch (e) {
     console.error('Failed to load config:', e);
   }
-  return DEFAULT_CONFIG;
+  return applyDirDefaults(DEFAULT_CONFIG);
 }
 
 export function saveConfig(config: AppConfig): void {

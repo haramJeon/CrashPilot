@@ -1,6 +1,51 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, execSync, ChildProcess } from 'child_process';
 import * as path from 'path';
 import { FixedFile } from '../types';
+
+async function ensureClaudeCli(onLog?: (line: string) => void): Promise<void> {
+  try {
+    execSync('claude --version', { stdio: 'ignore', timeout: 5000 });
+    return; // already installed
+  } catch { /* not found — install below */ }
+
+  onLog?.('[Claude] claude CLI not found. Installing via npm...');
+  onLog?.('[Claude] Running: npm install -g @anthropic-ai/claude-code');
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('npm', ['install', '-g', '@anthropic-ai/claude-code'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
+    });
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`[npm] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`[npm] ${line}`);
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        onLog?.('[Claude] Installation complete.');
+        resolve();
+      } else {
+        reject(new Error(`npm install -g @anthropic-ai/claude-code failed with code ${code}`));
+      }
+    });
+    proc.on('error', reject);
+  });
+
+  // Verify installation succeeded
+  try {
+    execSync('claude --version', { stdio: 'ignore', timeout: 5000 });
+  } catch {
+    throw new Error('claude CLI installation failed. Please run: npm install -g @anthropic-ai/claude-code');
+  }
+}
 
 function killProcess(proc: ChildProcess): void {
   if (!proc.pid) return;
@@ -189,6 +234,7 @@ ${jsonFooter}`;
   for (const line of prompt.split('\n')) onLog?.(line);
   onLog?.(`[AI] ────────────────────────────────`);
   onLog?.(`[AI] Sending to claude CLI...`);
+  await ensureClaudeCli(onLog);
 
   const allowedDirs = params.cdbTxtPath ? [path.dirname(params.cdbTxtPath)] : [];
 

@@ -78,13 +78,14 @@ export async function fetchAllNewReports(filter: FetchFilter = {}): Promise<Cras
 }
 
 // Determine OS from pcInfo (detail API only).
-// Looks for an entry whose type field contains "Windows" or "mac" (case-insensitive).
+// The "Version" entry under type "Windows" holds the actual OS string in its value,
+// e.g. "Microsoft Windows 11 Pro" or "macOS 14.4.1".
 function detectOsFromPcInfo(pcInfo: { type: string; key: string; value: string }[]): 'windows' | 'macos' | undefined {
-  for (const entry of pcInfo) {
-    const t = entry.type.toLowerCase();
-    if (t === 'windows') return 'windows';
-    if (t.includes('mac')) return 'macos';
-  }
+  const versionEntry = pcInfo.find((e) => e.key === 'Version' && e.type === 'Windows');
+  if (!versionEntry) return undefined;
+  const v = versionEntry.value.toLowerCase();
+  if (v.includes('macos') || v.includes('mac os')) return 'macos';
+  if (v.includes('windows')) return 'windows';
   return undefined;
 }
 

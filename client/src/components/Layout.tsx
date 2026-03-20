@@ -21,7 +21,7 @@ export default function Layout() {
           </NavLink>
         </nav>
         <div className="sidebar-footer">
-          <span className="version">v1.0.0</span>
+          <span className="version">v{__APP_VERSION__}</span>
         </div>
       </aside>
       <main className="main-content">

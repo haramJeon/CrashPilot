@@ -207,7 +207,7 @@ export async function analyzeAndFix(params: {
 }> {
   const { onLog } = params;
 
-  const jsonFooter = `\n\nReply with ONLY this JSON (no markdown, paths must be relative to repo root):\n{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"relative/path/to/file.cpp","content":"<FULL file content>"}]}`;
+  const jsonFooter = `\n\nReply with ONLY this JSON (no markdown, paths must be relative to repo root). Write rootCause and suggestedFix values in Korean:\n{"rootCause":"<function> — <reason>","suggestedFix":"<what changed>","fixedFiles":[{"path":"relative/path/to/file.cpp","content":"<FULL file content>"}]}`;
 
   const prompt = params.customPrompt?.trim()
     ? `${params.customPrompt.trim()}${jsonFooter}`

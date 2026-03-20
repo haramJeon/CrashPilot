@@ -3,6 +3,7 @@ import cors from 'cors';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
 import { getAppRoot } from './utils/appPaths';
@@ -67,7 +68,12 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`CrashPilot server running on http://localhost:${PORT}`);
+  const url = `http://localhost:${PORT}`;
+  writeLog('INFO', `CrashPilot server running on ${url}`);
+  // Auto-open browser (Windows only, ignore errors)
+  exec(`start ${url}`, (err) => {
+    if (err) writeLog('WARN', 'Could not open browser:', err.message);
+  });
 });
 
 export { io };

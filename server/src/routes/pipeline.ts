@@ -5,7 +5,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
+import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch, listRemoteRefs, findBestTag } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
 import { loadConfig } from '../services/config';

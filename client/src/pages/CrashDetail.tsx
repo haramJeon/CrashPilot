@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot, Pencil, Search, Loader, Check, X } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
@@ -28,6 +28,7 @@ export default function CrashDetail() {
   const [prBaseInput, setPrBaseInput] = useState('');
   const [prBaseLoading, setPrBaseLoading] = useState(false);
   const socketRef = useSocket();
+  const socketReceivedRef = useRef(false);
 
   const loadPrBaseBranch = async (tag: string) => {
     if (!tag) return;
@@ -44,16 +45,18 @@ export default function CrashDetail() {
   useEffect(() => {
     if (!id) return;
 
+    socketReceivedRef.current = false;
+
     apiGet<CrashReport>(`/crash/${id}`).then((data) => {
       setCrash(data);
-      if (data.pipelineSteps?.length) setSteps(data.pipelineSteps);
+      if (!socketReceivedRef.current && data.pipelineSteps?.length) setSteps(data.pipelineSteps);
       if (data.analysis) setAnalysis(data.analysis);
       if (data.releaseTag) loadPrBaseBranch(data.releaseTag);
     }).catch(() => {});
 
     apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then((h) => {
       setHistory(h);
-      setSteps(h.steps);
+      if (!socketReceivedRef.current) setSteps(h.steps);
       if (h.analysis) setAnalysis(h.analysis);
     }).catch(() => {});
 
@@ -61,7 +64,10 @@ export default function CrashDetail() {
     if (!socket) return;
 
     socket.on('pipeline:steps', (data: { crashId: string; steps: PipelineStep[] }) => {
-      if (data.crashId === id) setSteps(data.steps);
+      if (data.crashId === id) {
+        socketReceivedRef.current = true;
+        setSteps(data.steps);
+      }
     });
 
     socket.on('pipeline:complete', (data: { crashId: string; analysis: CrashAnalysis }) => {

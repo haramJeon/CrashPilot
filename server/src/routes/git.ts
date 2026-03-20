@@ -49,6 +49,7 @@ gitRouter.get('/refs/match', async (req, res) => {
 // Get the PR base branch for a tag (from saved map, or auto-detect via GitHub API)
 gitRouter.get('/pr-base-branch', async (req, res) => {
   const tag = String(req.query.tag || '');
+  const swName = req.query.swName ? String(req.query.swName) : undefined;
   if (!tag) return res.status(400).json({ error: 'tag is required' });
 
   // Check saved mapping first
@@ -63,7 +64,7 @@ gitRouter.get('/pr-base-branch', async (req, res) => {
 
   const [, owner, repo] = m;
   const octokit = new Octokit({ auth: resolveGitHubToken() });
-  const branch = await findNearestBranchForTag(octokit, owner, repo.replace(/\.git$/, ''), tag);
+  const branch = await findNearestBranchForTag(octokit, owner, repo.replace(/\.git$/, ''), tag, swName);
   res.json({ branch, source: branch ? 'detected' : 'none' });
 });
 

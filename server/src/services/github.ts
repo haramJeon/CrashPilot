@@ -51,6 +51,7 @@ export async function findNearestBranchForTag(
   owner: string,
   repo: string,
   tag: string,
+  swName?: string,
 ): Promise<string | null> {
   try {
     // Paginate branches (cap at 100 to avoid excessive API calls)
@@ -60,8 +61,13 @@ export async function findNearestBranchForTag(
       (res, done) => { done(); return res.data; }
     );
 
-    let nearest: string | null = null;
-    let minAhead = Infinity;
+    // Keyword derived from swName for branch name matching
+    // e.g. "APOS Touch" → "apos" / "touch", check any word matches
+    const swKeywords = swName
+      ? swName.toLowerCase().split(/[\s\-_]+/).filter(w => w.length > 1)
+      : [];
+
+    const candidates: { name: string; aheadBy: number; swMatch: boolean }[] = [];
 
     for (const branch of branches) {
       try {
@@ -70,17 +76,24 @@ export async function findNearestBranchForTag(
           repo,
           basehead: `${tag}...${branch.name}`,
         });
-        // 'ahead' or 'identical': branch contains the tag commit
+        // Only consider branches that contain the tag commit
         if (data.status === 'ahead' || data.status === 'identical') {
-          if (data.ahead_by < minAhead) {
-            minAhead = data.ahead_by;
-            nearest = branch.name;
-          }
+          const lowerName = branch.name.toLowerCase();
+          const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
+          candidates.push({ name: branch.name, aheadBy: data.ahead_by, swMatch });
         }
       } catch { /* branch may not contain tag — skip */ }
     }
 
-    return nearest;
+    if (candidates.length === 0) return null;
+
+    // Sort: sw-name-matching branches first, then by fewest commits ahead
+    candidates.sort((a, b) => {
+      if (a.swMatch !== b.swMatch) return a.swMatch ? -1 : 1;
+      return a.aheadBy - b.aheadBy;
+    });
+
+    return candidates[0].name;
   } catch {
     return null;
   }

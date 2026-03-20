@@ -30,11 +30,13 @@ export default function CrashDetail() {
   const socketRef = useSocket();
   const socketReceivedRef = useRef(false);
 
-  const loadPrBaseBranch = async (tag: string) => {
+  const loadPrBaseBranch = async (tag: string, swName?: string) => {
     if (!tag) return;
     setPrBaseLoading(true);
     try {
-      const res = await apiGet<{ branch: string | null }>(`/git/pr-base-branch?tag=${encodeURIComponent(tag)}`);
+      let url = `/git/pr-base-branch?tag=${encodeURIComponent(tag)}`;
+      if (swName) url += `&swName=${encodeURIComponent(swName)}`;
+      const res = await apiGet<{ branch: string | null }>(url);
       setPrBaseBranch(res.branch);
       setPrBaseInput(res.branch ?? '');
     } catch { /* ignore */ } finally {
@@ -51,7 +53,7 @@ export default function CrashDetail() {
       setCrash(data);
       if (!socketReceivedRef.current && data.pipelineSteps?.length) setSteps(data.pipelineSteps);
       if (data.analysis) setAnalysis(data.analysis);
-      if (data.releaseTag) loadPrBaseBranch(data.releaseTag);
+      if (data.releaseTag) loadPrBaseBranch(data.releaseTag, data.softwareName);
     }).catch(() => {});
 
     apiGet<PipelineRunHistory>(`/pipeline/history/${id}`).then((h) => {
@@ -114,7 +116,7 @@ export default function CrashDetail() {
     else setCrash((c) => c ? { ...c, releaseTag: ref.short } : c);
     setRefEditing(false);
     setRefMatches([]);
-    loadPrBaseBranch(ref.short);
+    loadPrBaseBranch(ref.short, crash?.softwareName);
   };
 
   const savePrBaseBranch = async () => {

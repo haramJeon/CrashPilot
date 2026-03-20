@@ -52,6 +52,7 @@ not implemented.
 **개발 모드**
 
 ```bash
+npm install
 npm run dev
 브라우저에서 `http://localhost:5173` 접속
 ```

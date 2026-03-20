@@ -34,10 +34,11 @@
 
 ### 설치 및 실행
 
-**Windows (권장)**
+
+**Windows**
 
 ```
-launcher.bat 더블클릭
+crashpilot-server.exe 더블 클릭 (http://localhost:3001 브라우저 자동 실행)
 ```
 
 의존성 설치 → 클라이언트 빌드 → 서버 시작이 자동으로 진행됩니다.
@@ -45,17 +46,16 @@ launcher.bat 더블클릭
 **macOS / Linux**
 
 ```bash
-./launcher.sh
+not implemented.
 ```
 
 **개발 모드**
 
 ```bash
-npm install
 npm run dev
+브라우저에서 `http://localhost:5173` 접속
 ```
 
-브라우저에서 `http://localhost:3001` 접속
 
 ---
 

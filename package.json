@@ -1,6 +1,6 @@
 {
   "name": "crashpilot",
-  "version": "0.9.0.2",
+  "version": "0.9.0.3",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",

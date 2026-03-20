@@ -27,6 +27,11 @@ export default function Settings() {
           apiGet<{ platform: Platform }>('/config/platform'),
           apiGet<{ valid: boolean; issues: string[] }>('/config/validate'),
         ]);
+        if (!data.buildNetworkBaseDir) {
+          data.buildNetworkBaseDir = plat.platform === 'macos'
+            ? '//10.100.1.20/Build_Repository/Product_Release'
+            : '\\\\10.100.1.20\\Build_Repository\\Product_Release';
+        }
         setConfig(data);
         setPlatform(plat.platform);
         setValidation(val);

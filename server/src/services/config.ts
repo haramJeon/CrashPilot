@@ -46,7 +46,21 @@ const DEFAULT_CONFIG: AppConfig = {
     repoBaseDir: '',
     branchPrefix: 'release/',
     defaultBranch: 'develop',
-    softwareTagFolders: {},
+    softwareTagFolders: {
+      "1": "",
+      "3": "smileDesign",
+      "4": "orthoSimulation",
+      "5": "Design",
+      "7": "CrownFit",
+      "8": "modelBuilder",
+      "11": "DCMConverter",
+      "12": "splints",
+      "13": "marginLines",
+      "14": "occlusionAnalyzer",
+      "15": "cad",
+      "16": "cariesDetection",
+      "17": "pos"
+    },
   },
 };
 

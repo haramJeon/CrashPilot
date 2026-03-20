@@ -270,7 +270,6 @@ export default function Dashboard() {
                   <th>Version</th>
                   <th>Tag</th>
                   <th>OS</th>
-                  <th>Region</th>
                   <th>Date</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -286,7 +285,6 @@ export default function Dashboard() {
                     <td className="crash-os">
                       {crash.osType === 'windows' ? '🪟 Windows' : crash.osType === 'macos' ? '🍎 macOS' : '—'}
                     </td>
-                    <td className="crash-region">{crash.region || '—'}</td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td><StatusBadge status={crash.status} /></td>
                     <td>

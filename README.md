@@ -15,6 +15,9 @@
 | Dashboard | Pipeline |
 |-----------|----------|
 | 크래시 목록 및 태그 관리 | 단계별 파이프라인 진행 상황 |
+|![bandicam 2026-03-20 17-49-00-089](https://github.com/user-attachments/assets/1b0dd781-8a58-49ee-bbbb-af6748b5d51a)| ![bandicam 2026-03-20 17-49-04-277](https://github.com/user-attachments/assets/17e468e6-9627-470e-b592-9b785a284d0f)
+
+
 
 ---
 

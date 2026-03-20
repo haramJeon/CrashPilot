@@ -190,7 +190,7 @@ export default function CrashDetail() {
 
             {/* Release tag selector — controls checkout, not PR */}
             <span className="ref-selector-wrap">
-              Branch:&nbsp;
+              Tag:&nbsp;
               {refEditing ? (
                 <span className="ref-selector">
                   <button className="branch-btn" onClick={() => searchRefs(crash.swVersion)} disabled={refSearching} title="Search matching refs">
@@ -222,10 +222,10 @@ export default function CrashDetail() {
               )}
             </span>
 
-            {/* PR base branch — from tag→branch mapping, used only for PR creation */}
+            {/* PR base branch — auto-detected from tag, used only for PR creation */}
             {crash.releaseTag && (
               <span className="ref-selector-wrap">
-                PR Branch:&nbsp;
+                Branch:&nbsp;
                 {prBaseEditing ? (
                   <span className="ref-selector">
                     <input

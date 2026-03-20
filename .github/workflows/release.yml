@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.9.0.2) — leave blank to auto-increment last digit'
+        required: false
+        default: ''
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── 1. Determine version ──────────────────────────────────────────────
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Auto-increment last digit (e.g. 0.9.0.0 → 0.9.0.1)
+            VERSION=$(node -e "
+              const v = '$CURRENT'.split('.');
+              v[v.length - 1] = String(Number(v[v.length - 1]) + 1);
+              console.log(v.join('.'));
+            ")
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION"
+
+      # ── 2. Bump version in package.json files ────────────────────────────
+      - name: Bump version
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const files = ['package.json', 'client/package.json', 'server/package.json'];
+            files.forEach(f => {
+              try {
+                const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+                pkg.version = process.env.VERSION;
+                fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+                console.log('Updated:', f);
+              } catch(e) {
+                console.log('Skipped:', f);
+              }
+            });
+          "
+
+      # ── 3. Build release (installs deps + builds + zips internally) ──────
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Build release
+        run: npm run build:release
+
+      # ── 4. Commit version bump & create tag ──────────────────────────────
+      - name: Commit & tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json client/package.json server/package.json
+          git add client/package-lock.json server/package-lock.json 2>/dev/null || true
+          git commit -m "chore: bump version to ${{ steps.ver.outputs.version }}"
+          git tag v${{ steps.ver.outputs.version }}
+          git push
+          git push --tags
+
+      # ── 5. Create GitHub Release & upload zip ────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: v${{ steps.ver.outputs.version }}
+          files: crashPilot_${{ steps.ver.outputs.version }}.zip
+          generate_release_notes: true

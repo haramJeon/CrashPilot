@@ -354,7 +354,6 @@ export default function CrashDetail() {
                 {analysis.fixedFiles.map((file, idx) => (
                   <div key={idx} className="file-diff">
                     <div className="file-path">{file.path}</div>
-                    <pre className="diff-block">{file.diff}</pre>
                   </div>
                 ))}
               </div>

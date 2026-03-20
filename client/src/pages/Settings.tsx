@@ -167,10 +167,6 @@ export default function Settings() {
         <div className="settings-section">
           <h3>Claude API</h3>
           <div className="field">
-            <label>API Key</label>
-            <input type="password" value={config.claude.apiKey} onChange={(e) => update('claude', 'apiKey', e.target.value)} placeholder="sk-ant-..." />
-          </div>
-          <div className="field">
             <label>Model</label>
             <input value={config.claude.model} onChange={(e) => update('claude', 'model', e.target.value)} placeholder="claude-sonnet-4-6" />
             <p className="field-help">e.g. claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001</p>
@@ -198,7 +194,7 @@ export default function Settings() {
           </div>
           <div className="field">
             <label>Default Branch <span className="field-hint">(fallback when version is unknown)</span></label>
-            <input value={config.git.defaultBranch} onChange={(e) => update('git', 'defaultBranch', e.target.value)} placeholder="master" />
+            <input value={config.git.defaultBranch} onChange={(e) => update('git', 'defaultBranch', e.target.value)} placeholder="develop" />
           </div>
         </div>
 

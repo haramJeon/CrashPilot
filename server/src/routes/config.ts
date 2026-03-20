@@ -4,18 +4,8 @@ import { fetchSoftwares } from '../services/crashReportServer';
 
 export const configRouter = Router();
 
-const MASK = '••••••••';
-
 configRouter.get('/', (_req, res) => {
-  const config = loadConfig();
-  const masked = {
-    ...config,
-    claude: {
-      ...config.claude,
-      apiKey: config.claude.apiKey ? MASK : '',
-    },
-  };
-  res.json(masked);
+  res.json(loadConfig());
 });
 
 configRouter.get('/platform', (_req, res) => {
@@ -36,8 +26,6 @@ configRouter.post('/', (req, res) => {
   const current = loadConfig();
   const incoming = req.body;
 
-  if (incoming.claude?.apiKey === MASK)      incoming.claude.apiKey      = current.claude.apiKey;
-
   const merged = { ...current, ...incoming };
   saveConfig(merged);
   res.json({ success: true });
@@ -49,7 +37,6 @@ configRouter.get('/validate', (_req, res) => {
   const issues: string[] = [];
 
   if (!config.crashReportServer.url) issues.push('Crash Report Server URL is missing');
-  if (!config.claude.apiKey) issues.push('Claude API Key is missing');
   if (!config.git.repoBaseDir) issues.push('Git Clone Base Directory is missing');
   if (!config.git.repoUrl) issues.push('Git Repository URL is missing');
 

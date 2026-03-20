@@ -72,7 +72,6 @@ export interface AppConfig {
     softwareIds: number[]; // software IDs to watch
   };
   claude: {
-    apiKey: string;
     model: string;
   };
   debugger: DebuggerConfig;
@@ -83,7 +82,7 @@ export interface AppConfig {
     repoUrl: string;        // e.g. https://github.com/org/repo.git
     repoBaseDir: string;    // base folder; each branch cloned into a subfolder
     branchPrefix: string;   // e.g. "release/" → sw_version "2.1.3.4" → "release/2.1.3"
-    defaultBranch: string;  // fallback when sw_version is empty (e.g. "master")
+    defaultBranch: string;  // fallback when sw_version is empty (e.g. "develop")
     softwareTagFolders: Record<string, string>; // softwareId (as string) → tag root folder
   };
 }

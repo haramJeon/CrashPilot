@@ -58,8 +58,6 @@ configRouter.get('/validate', (_req, res) => {
   if (!config.git.repoBaseDir) issues.push('Git Clone Base Directory is missing');
   if (!config.git.repoUrl) issues.push('Git Repository URL is missing');
   if (!config.github.token) issues.push('GitHub Token is missing');
-  if (!config.github.owner) issues.push('GitHub Owner is missing');
-  if (!config.github.repo) issues.push('GitHub Repo is missing');
 
   if (platform === 'windows') {
     if (!config.debugger.windows.cdbPath) issues.push('CDB Path is missing');

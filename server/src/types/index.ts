@@ -77,8 +77,6 @@ export interface AppConfig {
   };
   github: {
     token: string;
-    owner: string;
-    repo: string;
   };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string; // local dir where release zips are extracted (PDBs + crash dumps)

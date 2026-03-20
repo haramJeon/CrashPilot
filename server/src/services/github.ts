@@ -44,29 +44,6 @@ function parseGitHubOwnerRepo(url: string): { owner: string; repo: string } | nu
   return { owner: m[1], repo: m[2].replace(/\.git$/, '') };
 }
 
-/** True if ref looks like a tag (e.g. "pos/2.2.1/29" — 3 segments, last numeric). */
-function isTagRef(ref: string): boolean {
-  const parts = ref.split('/');
-  return parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1]);
-}
-
-/** Get the default branch of a GitHub repo via API, with ls-remote fallback. */
-async function getDefaultBranch(octokit: Octokit, owner: string, repo: string): Promise<string> {
-  try {
-    const { data } = await octokit.repos.get({ owner, repo });
-    return data.default_branch;
-  } catch {
-    // API failed (e.g. token lacks repo scope for private org) — fall back to git ls-remote
-    try {
-      const config = loadConfig();
-      const repoUrl = config.git.repoUrl || `https://github.com/${owner}/${repo}.git`;
-      const output = execSync(`git ls-remote --symref "${repoUrl}" HEAD`, { encoding: 'utf-8', timeout: 15000 });
-      const m = output.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m);
-      if (m) return m[1];
-    } catch { /* ignore */ }
-    return 'master';
-  }
-}
 
 /**
  * Find the remote branch whose HEAD is closest (fewest commits ahead) to the given tag.
@@ -194,9 +171,7 @@ ${params.analysis.fixedFiles.map((f) => f.diff).join('\n\n')}
 
   // Parent repo: derive owner/repo from config or repoUrl
   const parentUrl = config.git.repoUrl || '';
-  const parentParsed = (config.github.owner && config.github.repo)
-    ? { owner: config.github.owner, repo: config.github.repo }
-    : parseGitHubOwnerRepo(parentUrl);
+  const parentParsed = parseGitHubOwnerRepo(parentUrl);
 
   if (parentParsed) {
     targets.push({ ...parentParsed, dir: params.repoDir || '' });

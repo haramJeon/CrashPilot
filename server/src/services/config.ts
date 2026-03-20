@@ -83,8 +83,6 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   github: {
     token: '',
-    owner: '',
-    repo: '',
   },
   debugger: {
     windows: {

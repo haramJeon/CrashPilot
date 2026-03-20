@@ -184,14 +184,6 @@ export default function Settings() {
             <label>Personal Access Token</label>
             <input type="password" value={config.github.token} onChange={(e) => update('github', 'token', e.target.value)} placeholder="ghp_..." />
           </div>
-          <div className="field">
-            <label>Owner (org/user)</label>
-            <input value={config.github.owner} onChange={(e) => update('github', 'owner', e.target.value)} placeholder="my-org" />
-          </div>
-          <div className="field">
-            <label>Repository</label>
-            <input value={config.github.repo} onChange={(e) => update('github', 'repo', e.target.value)} placeholder="my-repo" />
-          </div>
         </div>
 
         {/* Git */}

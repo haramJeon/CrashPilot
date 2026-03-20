@@ -70,8 +70,6 @@ export interface AppConfig {
   };
   github: {
     token: string;
-    owner: string;
-    repo: string;
   };
   debugger: DebuggerConfig;
   releaseBuildBaseDir: string;

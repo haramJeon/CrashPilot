@@ -61,15 +61,23 @@ export async function findNearestBranchForTag(
       (res, done) => { done(); return res.data; }
     );
 
+    // Only consider release/ branches
+    const releaseBranches = branches.filter(b => b.name.startsWith('release/'));
+
     // Keyword derived from swName for branch name matching
-    // e.g. "APOS Touch" → "apos" / "touch", check any word matches
+    // e.g. "APOS Touch" → ["apos", "touch"], require at least one word to match
     const swKeywords = swName
       ? swName.toLowerCase().split(/[\s\-_]+/).filter(w => w.length > 1)
       : [];
 
     const candidates: { name: string; aheadBy: number; swMatch: boolean }[] = [];
 
-    for (const branch of branches) {
+    for (const branch of releaseBranches) {
+      // If swName provided, skip branches that don't contain any keyword
+      const lowerName = branch.name.toLowerCase();
+      const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
+      if (swKeywords.length > 0 && !swMatch) continue;
+
       try {
         const { data } = await octokit.repos.compareCommitsWithBasehead({
           owner,
@@ -78,8 +86,6 @@ export async function findNearestBranchForTag(
         });
         // Only consider branches that contain the tag commit
         if (data.status === 'ahead' || data.status === 'identical') {
-          const lowerName = branch.name.toLowerCase();
-          const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
           candidates.push({ name: branch.name, aheadBy: data.ahead_by, swMatch });
         }
       } catch { /* branch may not contain tag — skip */ }
@@ -87,11 +93,8 @@ export async function findNearestBranchForTag(
 
     if (candidates.length === 0) return null;
 
-    // Sort: sw-name-matching branches first, then by fewest commits ahead
-    candidates.sort((a, b) => {
-      if (a.swMatch !== b.swMatch) return a.swMatch ? -1 : 1;
-      return a.aheadBy - b.aheadBy;
-    });
+    // Sort by fewest commits ahead (all candidates already match swName if provided)
+    candidates.sort((a, b) => a.aheadBy - b.aheadBy);
 
     return candidates[0].name;
   } catch {

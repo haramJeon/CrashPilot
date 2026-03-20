@@ -65,6 +65,14 @@ gitRouter.get('/pr-base-branch', async (req, res) => {
   const [, owner, repo] = m;
   const octokit = new Octokit({ auth: resolveGitHubToken() });
   const branch = await findNearestBranchForTag(octokit, owner, repo.replace(/\.git$/, ''), tag, swName);
+
+  // Auto-save detected result to mapping file
+  if (branch) {
+    const updated = loadTagBranchMap();
+    updated[tag] = branch;
+    saveTagBranchMap(updated);
+  }
+
   res.json({ branch, source: branch ? 'detected' : 'none' });
 });
 

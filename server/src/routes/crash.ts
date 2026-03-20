@@ -41,6 +41,24 @@ export function crashRouter(io: SocketIOServer): Router {
       crashReports = await fetchAllNewReports(filter);
       io.emit('crashes:updated', crashReports);
       res.json({ count: crashReports.length, crashes: crashReports });
+
+      // Background: populate osType by fetching details in parallel (5 at a time)
+      const CONCURRENCY = 5;
+      const snapshot = [...crashReports];
+      for (let i = 0; i < snapshot.length; i += CONCURRENCY) {
+        const batch = snapshot.slice(i, i + CONCURRENCY);
+        await Promise.allSettled(
+          batch.map(async (report) => {
+            if (report.osType) return; // already known
+            try {
+              const detail = await fetchReportDetail(report.id);
+              if (detail.osType) updateCrashRecord(report.id, { osType: detail.osType });
+            } catch { /* ignore individual failures */ }
+          })
+        );
+        io.emit('crashes:updated', crashReports);
+      }
+      io.emit('status', { message: `OS type resolved for ${snapshot.length} reports` });
     } catch (error: any) {
       io.emit('status', { message: `Error: ${error.message}`, type: 'error' });
       res.status(500).json({ error: error.message });

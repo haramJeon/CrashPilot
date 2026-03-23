@@ -153,7 +153,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     apiGet<{ git: { softwareTagFolders: Record<string, string> } }>('/config')
-      .then((cfg) => { tagFoldersRef.current = cfg.git.softwareTagFolders ?? {}; })
+      .then((cfg) => {
+        const folders = cfg.git.softwareTagFolders ?? {};
+        tagFoldersRef.current = folders;
+        // Re-populate tags if crashes were already loaded before config arrived (race condition fix)
+        setCrashes((prev) => {
+          if (prev.length === 0) return prev;
+          return prev.map((c) => {
+            const folder = folders[String(c.softwareId)];
+            if (!folder || !c.swVersion) return c;
+            return { ...c, releaseTag: buildTag(folder, c.swVersion) };
+          });
+        });
+      })
       .catch(() => {});
     apiGet<ApiSoftware[]>('/crash/softwares').then(setSoftwares).catch(() => {});
     apiGet<number[]>('/pipeline/history').then((ids) => setHistoryIds(new Set(ids))).catch(() => {});

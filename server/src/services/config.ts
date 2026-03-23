@@ -82,9 +82,14 @@ const DEFAULT_CONFIG: AppConfig = {
 /** Fill empty dir fields with defaults relative to the app root (exe directory). */
 function applyDirDefaults(config: AppConfig): AppConfig {
   const appRoot = getAppRoot();
+  const platform = getCurrentPlatform();
+  const defaultNetworkBase = platform === 'macos'
+    ? '//10.100.1.20/Build_Repository/Product_Release'
+    : '\\\\10.100.1.20\\Build_Repository\\Product_Release';
   return {
     ...config,
     releaseBuildBaseDir: config.releaseBuildBaseDir || path.join(appRoot, 'pdb'),
+    buildNetworkBaseDir: config.buildNetworkBaseDir || defaultNetworkBase,
     git: {
       ...config.git,
       repoBaseDir: config.git.repoBaseDir || path.join(appRoot, 'repository'),
@@ -100,13 +105,18 @@ export function loadConfig(): AppConfig {
       const merged: AppConfig = {
         ...DEFAULT_CONFIG,
         ...decrypted,
+        softwareBuildPaths: { ...DEFAULT_CONFIG.softwareBuildPaths, ...decrypted.softwareBuildPaths },
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...decrypted.crashReportServer },
         claude: { ...DEFAULT_CONFIG.claude, ...decrypted.claude },
         debugger: {
           windows: { ...DEFAULT_CONFIG.debugger.windows, ...decrypted.debugger?.windows },
           macos: { ...DEFAULT_CONFIG.debugger.macos, ...decrypted.debugger?.macos },
         },
-        git: { ...DEFAULT_CONFIG.git, ...decrypted.git },
+        git: {
+          ...DEFAULT_CONFIG.git,
+          ...decrypted.git,
+          softwareTagFolders: { ...DEFAULT_CONFIG.git.softwareTagFolders, ...decrypted.git?.softwareTagFolders },
+        },
       };
       return applyDirDefaults(merged);
     }

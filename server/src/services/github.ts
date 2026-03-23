@@ -127,11 +127,17 @@ export async function findNearestBranchForTag(
       { owner, repo, per_page: 100 },
     );
 
-    // Collect unique sub-folder names directly under release/ (e.g. "pos" from "release/pos/2.2.1")
+    // Collect candidate names for sw-matching from release branches.
+    // Handles both nested  (release/pos/2.2.1  → "pos")
+    // and flat             (release/Pos_v0.9   → "Pos") structures.
     const releaseFolders = new Set<string>();
     for (const branch of branches) {
-      const m = branch.name.match(/^release\/([^/]+)\//i);
-      if (m) releaseFolders.add(m[1]);
+      // nested: release/FOLDER/...
+      const nested = branch.name.match(/^release\/([^/]+)\//i);
+      if (nested) { releaseFolders.add(nested[1]); continue; }
+      // flat: release/NAME  (strip trailing _vX.Y or -vX.Y suffix for cleaner matching)
+      const flat = branch.name.match(/^release\/([^/]+)$/i);
+      if (flat) releaseFolders.add(flat[1].replace(/[_-]v[\d.]+.*$/i, ''));
     }
 
     // Fuzzy-match swName against available release sub-folders
@@ -139,14 +145,29 @@ export async function findNearestBranchForTag(
     const matchedFolder = swSegment
       ? bestMatchingSwFolder(swSegment, [...releaseFolders])
       : null;
-    const releaseSwPrefix = matchedFolder ? `release/${matchedFolder}/`.toLowerCase() : null;
 
     if (matchedFolder) {
-      console.log(`[CrashPilot] swName="${swSegment}" → matched release folder "${matchedFolder}" (prefix: ${releaseSwPrefix})`);
+      console.log(`[CrashPilot] swName="${swSegment}" → matched release folder "${matchedFolder}"`);
     }
 
-    // priority 0 = release/{matchedFolder}/…  (highest)
-    // priority 1 = release/…  (any other release/* branch)
+    /** Returns true if a release branch name is associated with matchedFolder.
+     *  Works for both nested (release/pos/...) and flat (release/Pos_v0.9) layouts.
+     */
+    function isMatchedBranch(branchName: string): boolean {
+      if (!matchedFolder) return false;
+      const lower = branchName.toLowerCase();
+      const folderLower = matchedFolder.toLowerCase();
+      // nested layout: release/matchedFolder/...
+      if (lower.startsWith(`release/${folderLower}/`)) return true;
+      // flat layout: release/matchedFolder or release/matchedFolder_v... or release/matchedFolder-v...
+      const afterRelease = lower.slice('release/'.length);
+      return afterRelease === folderLower ||
+        afterRelease.startsWith(`${folderLower}_`) ||
+        afterRelease.startsWith(`${folderLower}-`);
+    }
+
+    // priority 0 = release branch matched to swName  (highest)
+    // priority 1 = any other release/* branch
     // Non-release branches are excluded entirely.
     const candidates: { name: string; aheadBy: number; priority: number }[] = [];
 
@@ -162,8 +183,7 @@ export async function findNearestBranchForTag(
         });
         // Only consider branches that contain the tag commit
         if (data.status === 'ahead' || data.status === 'identical') {
-          const lowerName = branch.name.toLowerCase();
-          const priority = (releaseSwPrefix && lowerName.startsWith(releaseSwPrefix)) ? 0 : 1;
+          const priority = isMatchedBranch(branch.name) ? 0 : 1;
           candidates.push({ name: branch.name, aheadBy: data.ahead_by, priority });
         }
       } catch { /* branch may not contain tag — skip */ }
@@ -171,7 +191,7 @@ export async function findNearestBranchForTag(
 
     if (candidates.length === 0) return null;
 
-    // Sort: release/{matchedFolder}/ first, then other release/*; within each group fewest ahead
+    // Sort: matched sw release branch first, then other release/*; within each group fewest ahead
     candidates.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
       return a.aheadBy - b.aheadBy;

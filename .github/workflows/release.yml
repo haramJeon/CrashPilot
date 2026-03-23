@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.9.0.2) — leave blank to auto-increment last digit'
+        description: 'Release version (e.g. 0.9.0.3) — leave blank to auto-increment last digit. Tag will be release/0.9.0/3'
         required: false
         default: ''
 
@@ -39,8 +39,13 @@ jobs:
               console.log(v.join('.'));
             ")
           fi
+          # Build tag name: 0.9.0.3 → release/0.9.0/3
+          BASE=$(echo "$VERSION" | cut -d. -f1-3)
+          BUILD=$(echo "$VERSION" | cut -d. -f4)
+          TAG="release/${BASE}/${BUILD}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Releasing version: $VERSION"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Releasing version: $VERSION (tag: $TAG)"
 
       # ── 2. Bump version in package.json files ────────────────────────────
       - name: Bump version
@@ -79,7 +84,7 @@ jobs:
           git add package.json client/package.json server/package.json
           git add client/package-lock.json server/package-lock.json 2>/dev/null || true
           git commit -m "chore: bump version to ${{ steps.ver.outputs.version }}"
-          git tag v${{ steps.ver.outputs.version }}
+          git tag "${{ steps.ver.outputs.tag }}"
           git push
           git push --tags
 
@@ -87,7 +92,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          name: v${{ steps.ver.outputs.version }}
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
           files: crashPilot_${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true

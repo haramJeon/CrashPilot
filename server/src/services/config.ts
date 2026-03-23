@@ -113,7 +113,9 @@ export function loadConfig(): AppConfig {
   } catch (e) {
     console.error('Failed to load config:', e);
   }
-  return applyDirDefaults(DEFAULT_CONFIG);
+  const defaults = applyDirDefaults(DEFAULT_CONFIG);
+  saveConfig(defaults);
+  return defaults;
 }
 
 export function saveConfig(config: AppConfig): void {

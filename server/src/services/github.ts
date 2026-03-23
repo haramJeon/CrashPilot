@@ -46,15 +46,28 @@ function normStr(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** Split a name into lowercase word tokens by camelCase boundaries and separators.
+ *  e.g. "meditModelBuilder_v1.5" → ["medit", "model", "builder", "v1", "5"]
+ */
+function tokenize(s: string): string[] {
+  return s
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/[^a-zA-Z0-9]+/)
+    .map(t => t.toLowerCase())
+    .filter(Boolean);
+}
+
 /**
  * Given a swName and a set of release sub-folder names (the segment right after "release/"),
  * return the folder whose normalised form best matches the normalised swName.
- * Matching order: exact → one contains the other (longer match wins) → highest char overlap.
+ * Scoring: exact > token overlap (e.g. "meditModelBuilder" matches "modelBuilder" via shared tokens) > substring > leading chars.
  */
 function bestMatchingSwFolder(swName: string, folders: string[]): string | null {
   if (folders.length === 0) return null;
   const normSw = normStr(swName);
   if (!normSw) return null;
+
+  const swTokens = new Set(tokenize(swName));
 
   let best: string | null = null;
   let bestScore = -1;
@@ -66,17 +79,20 @@ function bestMatchingSwFolder(swName: string, folders: string[]): string | null 
     let score = 0;
     if (normFolder === normSw) {
       score = 1000; // exact match
-    } else if (normSw.includes(normFolder) || normFolder.includes(normSw)) {
-      // one is a substring of the other — prefer the longer overlap
-      score = 500 + Math.min(normSw.length, normFolder.length);
     } else {
-      // count shared leading characters as a rough similarity measure
-      let shared = 0;
-      for (let i = 0; i < Math.min(normSw.length, normFolder.length); i++) {
-        if (normSw[i] === normFolder[i]) shared++;
-        else break;
+      // Token overlap: count how many folder tokens appear in swName tokens
+      // e.g. swName="meditModelBuilder", folder="modelBuilder" → 2 shared tokens → score 200
+      const folderTokens = tokenize(folder);
+      let matchCount = 0;
+      for (const t of folderTokens) {
+        if (swTokens.has(t)) matchCount++;
       }
-      score = shared;
+      score = matchCount * 100;
+
+      // Bonus if one is a substring of the other (normalised)
+      if (normSw.includes(normFolder) || normFolder.includes(normSw)) {
+        score += 50;
+      }
     }
 
     if (score > bestScore) {

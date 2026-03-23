@@ -79,7 +79,7 @@ function runClaude(
     for (const dir of allowedDirs ?? []) {
       args.push('--add-dir', dir);
     }
-    proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
+    proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, shell: process.platform === 'win32' });
 
     proc.stdin!.write(prompt, 'utf-8');
     proc.stdin!.end();

@@ -67,6 +67,17 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    const url = `http://localhost:${PORT}`;
+    writeLog('INFO', `Port ${PORT} already in use — CrashPilot is already running. Opening browser...`);
+    exec(`start ${url}`, () => {});
+    process.exit(0);
+  } else {
+    writeLog('FATAL', 'Server error:', err.message);
+    process.exit(1);
+  }
+});
 server.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   writeLog('INFO', `CrashPilot server running on ${url}`);

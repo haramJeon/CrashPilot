@@ -40,6 +40,15 @@ if not exist "client\dist" (
 )
 
 echo.
+
+:: Check if server is already running on port 3001
+netstat -ano | findstr ":3001 " | findstr "LISTENING" >nul 2>nul
+if %errorlevel% equ 0 (
+    echo CrashPilot is already running. Opening browser...
+    start "" "http://localhost:3001"
+    exit /b 0
+)
+
 echo Starting CrashPilot server...
 echo.
 

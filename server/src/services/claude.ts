@@ -211,19 +211,42 @@ export async function analyzeAndFix(params: {
 
   const prompt = params.customPrompt?.trim()
     ? `${params.customPrompt.trim()}${jsonFooter}`
-    : `C++ crash analysis. Read the CDB output file, find the relevant source files, and fix the crash.
+    : `C++ crash analysis. Fix the crash with MINIMAL context usage — follow every rule below exactly.
 
 ${params.cdbTxtPath ? `CDB output: ${params.cdbTxtPath}` : `Exception: ${params.exceptionType} in ${params.faultingModule} (no CDB file available)`}
 
-Source repo is your current working directory. Find the relevant source files yourself.
+Source repo is your current working directory.
 
-Rules:
-- Read the CDB file for the full crash details: call stack, exception, registers, symbol info
-- Identify the crashing function (first non-OS frame in the call stack)
-- Search the repo for the relevant source files
-- Produce the minimal fix
-- Only include files you actually change
-- File paths must be relative to the repo root (e.g. "framework/kernel/source/foo.cpp")
+## Context Minimization Rules (MANDATORY):
+
+### Reading the CDB file
+- NEVER read the entire CDB file.
+- Step 1: Grep for key sections first:
+    grep -n "EXCEPTION_RECORD\\|STACK_TEXT\\|ChildEBP\\|RetAddr\\|ExceptionAddress" <cdb_file> | head -30
+- Step 2: Read only those lines with offset+limit (e.g. Read file offset=N limit=60).
+
+### Finding source files
+- Use Grep with a file-type filter — NEVER recursive grep without --include:
+    grep -rn "functionName" <specific_subdir> --include="*.cpp"
+    grep -rn "functionName" <specific_subdir> --include="*.h"
+- Narrow the search path as much as possible (e.g. "source/payment/" not the whole repo root).
+
+### Reading source files
+- NEVER read an entire source file.
+- Step 1: Grep to find the exact line number of the crashing function.
+- Step 2: Read only ±40 lines around that function (offset+limit).
+- NEVER read the same file twice — extract everything needed in one read.
+
+### General
+- Stop searching as soon as you have identified the crashing function and its source lines.
+- Do not explore unrelated files or directories.
+
+## Analysis Steps:
+1. Grep the CDB file for exception/stack keywords → find the faulting function name (first non-OS frame).
+2. Grep the repo for that function name with --include="*.cpp" filter in the most specific subdir.
+3. Read only the crashing function body (offset+limit ±40 lines).
+4. Produce the minimal fix — touch only the lines that cause the crash.
+5. Only include files you actually change; paths must be relative to the repo root.
 ${jsonFooter}`;
 
   onLog?.(`[AI] Exception: ${params.exceptionType} | Module: ${params.faultingModule}`);

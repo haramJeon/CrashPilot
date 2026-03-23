@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import AdmZip from 'adm-zip';
+import yauzl from 'yauzl';
 import { loadConfig } from './config';
 import { getCurrentPlatform } from './config';
 
@@ -49,14 +49,14 @@ export async function downloadPdbFiles(
     onLog?.(`> Copying zip from network...`);
     onLog?.(`  ${zipNetworkPath}`);
     onLog?.(`  → ${localZipPath}`);
-    fs.copyFileSync(zipNetworkPath, localZipPath);
+    await copyFileAsync(zipNetworkPath, localZipPath, onLog);
     onLog?.(`  Copy done.`);
 
     // Step 2: extract locally
     onLog?.(`> Extracting...`);
     onLog?.(`  ${localZipPath} → ${extractDir}`);
     fs.mkdirSync(extractDir, { recursive: true });
-    extractLargeZip(localZipPath, extractDir, onLog);
+    await extractZip(localZipPath, extractDir, onLog);
 
     // Step 3: delete local zip
     fs.unlinkSync(localZipPath);
@@ -101,14 +101,13 @@ export async function downloadDump(
   // Extract entire zip into crashDir
   onLog?.(`> Extracting zip contents...`);
   onLog?.(`  → ${crashDir}`);
-  const zip = new AdmZip(zipPath);
-  zip.extractAllTo(crashDir, true);
+  const extractedFiles = await extractZip(zipPath, crashDir, onLog);
   fs.unlinkSync(zipPath);
 
   // Find the .dmp file inside crashDir (may be in a subfolder)
-  const dmpEntry = zip.getEntries().find((e) => e.entryName.endsWith('.dmp'));
+  const dmpEntry = extractedFiles.find((f) => f.endsWith('.dmp'));
   if (!dmpEntry) throw new Error('No .dmp file found in downloaded zip.');
-  const dmpFilename = path.basename(dmpEntry.entryName);
+  const dmpFilename = path.basename(dmpEntry);
   const dmpInCrashDir = path.join(crashDir, dmpFilename);
 
   // Copy .dmp to pdbDir root so CDB can find it alongside PDB files
@@ -121,30 +120,63 @@ export async function downloadDump(
 }
 
 /**
- * Extract a zip file using system tools to support files > 2GB.
- * Windows: uses tar.exe (built-in on Windows 10+), falls back to PowerShell Expand-Archive.
- * macOS/Linux: uses unzip.
+ * Copy a file asynchronously using streams (avoids blocking the event loop).
  */
-function extractLargeZip(zipPath: string, destDir: string, onLog?: (line: string) => void): void {
-  const platform = getCurrentPlatform();
+function copyFileAsync(src: string, dest: string, onLog?: (line: string) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const readStream = fs.createReadStream(src);
+    const writeStream = fs.createWriteStream(dest);
+    readStream.on('error', reject);
+    writeStream.on('error', reject);
+    writeStream.on('finish', resolve);
+    readStream.pipe(writeStream);
+  });
+}
 
-  if (platform === 'macos') {
-    onLog?.(`> unzip "${zipPath}" -d "${destDir}"`);
-    execSync(`unzip -o "${zipPath}" -d "${destDir}"`, {
-      encoding: 'utf-8',
-      timeout: 600000,
-      maxBuffer: 10 * 1024 * 1024,
+/**
+ * Extract a zip file using yauzl (streaming, no 2 GiB limit, cross-platform).
+ * Returns the list of extracted file paths (relative entry names).
+ */
+function extractZip(zipPath: string, destDir: string, onLog?: (line: string) => void): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    onLog?.(`> Extracting with yauzl...`);
+    const extractedFiles: string[] = [];
+
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err || !zipfile) return reject(new Error(`Extraction failed: ${err?.message}`));
+
+      zipfile.readEntry();
+
+      zipfile.on('entry', (entry) => {
+        const entryPath = path.join(destDir, entry.fileName);
+
+        if (/\/$/.test(entry.fileName)) {
+          // Directory entry
+          fs.mkdirSync(entryPath, { recursive: true });
+          zipfile.readEntry();
+        } else {
+          fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+          zipfile.openReadStream(entry, (streamErr, readStream) => {
+            if (streamErr || !readStream) return reject(new Error(`Extraction failed: ${streamErr?.message}`));
+            const writeStream = fs.createWriteStream(entryPath);
+            writeStream.on('finish', () => {
+              extractedFiles.push(entry.fileName);
+              zipfile.readEntry();
+            });
+            writeStream.on('error', reject);
+            readStream.on('error', reject);
+            readStream.pipe(writeStream);
+          });
+        }
+      });
+
+      zipfile.on('end', () => {
+        onLog?.(`  Done.`);
+        resolve(extractedFiles);
+      });
+
+      zipfile.on('error', (e) => reject(new Error(`Extraction failed: ${e.message}`)));
     });
-    return;
-  }
-
-  // Windows: use PowerShell Expand-Archive (handles UNC paths and files > 2GB)
-  const ps = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
-  onLog?.(`> powershell Expand-Archive "${zipPath}" → "${destDir}"`);
-  execSync(`powershell -NoProfile -Command "${ps}"`, {
-    encoding: 'utf-8',
-    timeout: 600000,
-    maxBuffer: 10 * 1024 * 1024,
   });
 }
 

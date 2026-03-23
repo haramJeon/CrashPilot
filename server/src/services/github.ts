@@ -333,10 +333,10 @@ ${params.analysis.suggestedFix}
       }
     }
     if (!resolvedBase) {
-      throw new Error(
-        `No branch mapping found for tag "${params.baseBranch}" and auto-detection failed. ` +
-        `Please add it in Settings → Tag → Branch Mapping.`
-      );
+      const cfg = loadConfig();
+      const fallback = cfg.git.defaultBranch;
+      console.log(`[CrashPilot] Auto-detection failed for "${params.baseBranch}", falling back to default branch: "${fallback}"`);
+      resolvedBase = fallback;
     }
   }
 

@@ -91,7 +91,7 @@ Express Server
 파이프라인은 두 개의 독립된 HTTP 요청으로 분리됩니다.
 
 1. **`POST /pipeline/run/:crashId`** — 단계 0~4 실행 후 `aiWaitStates`에 중간 상태 저장
-2. **`POST /pipeline/run-ai/:crashId`** — 단계 5~10 실행 (저장된 상태 복원)
+2. **`POST /pipeline/run-ai/:crashId`** — 단계 5~9 실행 (저장된 상태 복원)
 
 이 구조 덕분에 AI 분석 전에 사용자가 CDB 결과를 검토하고 커스텀 프롬프트를 입력할 수 있습니다.
 

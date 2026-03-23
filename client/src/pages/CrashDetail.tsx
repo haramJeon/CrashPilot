@@ -164,6 +164,7 @@ export default function CrashDetail() {
       }
     } catch (e: any) {
       console.error(e);
+      alert(`Retry failed: ${e.message}`);
     }
   };
 

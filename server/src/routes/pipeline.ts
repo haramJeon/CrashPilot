@@ -119,6 +119,10 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
     };
 
+    // Declared outside try so the catch block can save it to history,
+    // enabling step 9 (Create PR) retry even when PR creation fails.
+    let analysis: CrashAnalysis | undefined;
+
     try {
       // Step 4 (gate): mark done immediately — user confirmed by clicking
       steps[4].status = 'done';
@@ -217,7 +221,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       steps[9].status = 'running';
       emitSteps(crashId, steps);
 
-      const analysis: CrashAnalysis = {
+      analysis = {
         callStack: cdbCallStack,
         exceptionType: cdbExceptionType,
         rootCause: aiResult.rootCause,
@@ -245,12 +249,12 @@ export function pipelineRouter(io: SocketIOServer): Router {
       if (error.message === '__CANCELLED__') {
         if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = 'Cancelled by user'; }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user', pipelineState });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: 'Cancelled by user', analysis, pipelineState });
         io.emit('pipeline:cancelled', { crashId });
       } else {
         if (runningIdx >= 0) { steps[runningIdx].status = 'error'; steps[runningIdx].message = error.message; }
         emitSteps(crashId, steps);
-        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message, pipelineState });
+        saveHistory({ crashId, runAt: new Date().toISOString(), status: 'error', releaseTag: releaseBranch, steps: [...steps], errorMessage: error.message, analysis, pipelineState });
         io.emit('pipeline:error', { crashId, error: error.message });
       }
     } finally {

@@ -41,9 +41,60 @@ function parseGitHubOwnerRepo(url: string): { owner: string; repo: string } | nu
 }
 
 
+/** Normalise a string for fuzzy comparison: lowercase + strip non-alphanumeric chars. */
+function normStr(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Given a swName and a set of release sub-folder names (the segment right after "release/"),
+ * return the folder whose normalised form best matches the normalised swName.
+ * Matching order: exact → one contains the other (longer match wins) → highest char overlap.
+ */
+function bestMatchingSwFolder(swName: string, folders: string[]): string | null {
+  if (folders.length === 0) return null;
+  const normSw = normStr(swName);
+  if (!normSw) return null;
+
+  let best: string | null = null;
+  let bestScore = -1;
+
+  for (const folder of folders) {
+    const normFolder = normStr(folder);
+    if (!normFolder) continue;
+
+    let score = 0;
+    if (normFolder === normSw) {
+      score = 1000; // exact match
+    } else if (normSw.includes(normFolder) || normFolder.includes(normSw)) {
+      // one is a substring of the other — prefer the longer overlap
+      score = 500 + Math.min(normSw.length, normFolder.length);
+    } else {
+      // count shared leading characters as a rough similarity measure
+      let shared = 0;
+      for (let i = 0; i < Math.min(normSw.length, normFolder.length); i++) {
+        if (normSw[i] === normFolder[i]) shared++;
+        else break;
+      }
+      score = shared;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = folder;
+    }
+  }
+
+  // Only accept if there is at least some commonality
+  return bestScore > 0 ? best : null;
+}
+
 /**
  * Find the remote branch whose HEAD is closest (fewest commits ahead) to the given tag.
  * Uses GitHub API compare endpoint — works with shallow clones.
+ * Prioritises branches under release/{bestMatchSwFolder}/ first (fuzzy-matched from swName),
+ * then any other release/* branch, then everything else.
+ * Within each priority group, picks the branch with fewest commits ahead.
  * Limits to first 100 branches to avoid too many API calls.
  */
 export async function findNearestBranchForTag(
@@ -61,15 +112,33 @@ export async function findNearestBranchForTag(
       (res, done) => { done(); return res.data; }
     );
 
-    // Keyword derived from swName for branch name matching
-    // e.g. "APOS Touch" → "apos" / "touch", check any word matches
-    const swKeywords = swName
-      ? swName.toLowerCase().split(/[\s\-_]+/).filter(w => w.length > 1)
-      : [];
+    // Collect unique sub-folder names directly under release/ (e.g. "pos" from "release/pos/2.2.1")
+    const releaseFolders = new Set<string>();
+    for (const branch of branches) {
+      const m = branch.name.match(/^release\/([^/]+)\//i);
+      if (m) releaseFolders.add(m[1]);
+    }
 
-    const candidates: { name: string; aheadBy: number; swMatch: boolean }[] = [];
+    // Fuzzy-match swName against available release sub-folders
+    const swSegment = swName ? swName.split('/')[0] : null; // first tag segment, e.g. "pos"
+    const matchedFolder = swSegment
+      ? bestMatchingSwFolder(swSegment, [...releaseFolders])
+      : null;
+    const releaseSwPrefix = matchedFolder ? `release/${matchedFolder}/`.toLowerCase() : null;
+
+    if (matchedFolder) {
+      console.log(`[CrashPilot] swName="${swSegment}" → matched release folder "${matchedFolder}" (prefix: ${releaseSwPrefix})`);
+    }
+
+    // priority 0 = release/{matchedFolder}/…  (highest)
+    // priority 1 = release/…  (any other release/* branch)
+    // Non-release branches are excluded entirely.
+    const candidates: { name: string; aheadBy: number; priority: number }[] = [];
 
     for (const branch of branches) {
+      // Only search within release/ branches
+      if (!branch.name.toLowerCase().startsWith('release/')) continue;
+
       try {
         const { data } = await octokit.repos.compareCommitsWithBasehead({
           owner,
@@ -79,17 +148,17 @@ export async function findNearestBranchForTag(
         // Only consider branches that contain the tag commit
         if (data.status === 'ahead' || data.status === 'identical') {
           const lowerName = branch.name.toLowerCase();
-          const swMatch = swKeywords.length > 0 && swKeywords.some(kw => lowerName.includes(kw));
-          candidates.push({ name: branch.name, aheadBy: data.ahead_by, swMatch });
+          const priority = (releaseSwPrefix && lowerName.startsWith(releaseSwPrefix)) ? 0 : 1;
+          candidates.push({ name: branch.name, aheadBy: data.ahead_by, priority });
         }
       } catch { /* branch may not contain tag — skip */ }
     }
 
     if (candidates.length === 0) return null;
 
-    // Sort: sw-name-matching branches first, then by fewest commits ahead
+    // Sort: release/{matchedFolder}/ first, then other release/*; within each group fewest ahead
     candidates.sort((a, b) => {
-      if (a.swMatch !== b.swMatch) return a.swMatch ? -1 : 1;
+      if (a.priority !== b.priority) return a.priority - b.priority;
       return a.aheadBy - b.aheadBy;
     });
 
@@ -213,14 +282,27 @@ ${params.analysis.suggestedFix}
     console.log(`[CrashPilot] Skipping parent repo PR — all changes are inside submodules`);
   }
 
-  // ── Resolve base branch from Settings mapping ────────────────────────────
+  // ── Resolve base branch: saved mapping → auto-detect nearest release branch ─
   const map = loadTagBranchMap();
-  const resolvedBase = map[params.baseBranch];
+  let resolvedBase = map[params.baseBranch];
   if (!resolvedBase) {
-    throw new Error(
-      `No branch mapping found for tag "${params.baseBranch}". ` +
-      `Please add it in Settings → Tag → Branch Mapping.`
-    );
+    // Extract the sw name from the tag's first path segment (e.g. "pos" from "pos/2.2.1/36")
+    const swSegment = params.baseBranch.split('/')[0];
+    // Use parent repo for lookup; fall back to first available target repo
+    const lookupRepo = parentParsed ?? (targets[0] ? { owner: targets[0].owner, repo: targets[0].repo } : null);
+    if (lookupRepo) {
+      console.log(`[CrashPilot] No branch mapping for "${params.baseBranch}", auto-detecting nearest release branch (sw=${swSegment})…`);
+      resolvedBase = await findNearestBranchForTag(octokit, lookupRepo.owner, lookupRepo.repo, params.baseBranch, swSegment) ?? '';
+      if (resolvedBase) {
+        console.log(`[CrashPilot] Auto-detected base branch: ${resolvedBase}`);
+      }
+    }
+    if (!resolvedBase) {
+      throw new Error(
+        `No branch mapping found for tag "${params.baseBranch}" and auto-detection failed. ` +
+        `Please add it in Settings → Tag → Branch Mapping.`
+      );
+    }
   }
 
   // ── Create a PR for each target repo ────────────────────────────────────

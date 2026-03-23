@@ -105,11 +105,10 @@ export async function findNearestBranchForTag(
   swName?: string,
 ): Promise<string | null> {
   try {
-    // Paginate branches (cap at 100 to avoid excessive API calls)
+    // Fetch all branches (paginate fully — done() was stopping at page 1)
     const branches = await octokit.paginate(
       octokit.repos.listBranches,
       { owner, repo, per_page: 100 },
-      (res, done) => { done(); return res.data; }
     );
 
     // Collect unique sub-folder names directly under release/ (e.g. "pos" from "release/pos/2.2.1")

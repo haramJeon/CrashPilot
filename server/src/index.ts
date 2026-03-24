@@ -6,7 +6,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
-import { getAppRoot } from './utils/appPaths';
+import { getAppRoot, getDataRoot } from './utils/appPaths';
 import { configRouter } from './routes/config';
 import { gitRouter } from './routes/git';
 import { crashRouter } from './routes/crash';
@@ -15,7 +15,7 @@ import { pipelineRouter } from './routes/pipeline';
 dotenv.config();
 
 // ── File logger (writes next to exe so errors are visible even without console) ──
-const logPath = path.join(getAppRoot(), 'crashpilot.log');
+const logPath = path.join(getDataRoot(), 'crashpilot.log');
 function writeLog(level: string, ...args: any[]) {
   const line = `[${new Date().toISOString()}] [${level}] ${args.map(String).join(' ')}\n`;
   process.stdout.write(line);
@@ -30,8 +30,10 @@ process.on('unhandledRejection', (reason) => {
   writeLog('FATAL', 'unhandledRejection:', reason instanceof Error ? reason.stack : String(reason));
 });
 
-// Ensure data/ directory exists next to the executable (or project root in dev)
-const dataDir = path.join(getAppRoot(), 'data');
+// Ensure data root and data/ subdirectory exist (ProgramData in production)
+const dataRoot = getDataRoot();
+if (!fs.existsSync(dataRoot)) fs.mkdirSync(dataRoot, { recursive: true });
+const dataDir = path.join(dataRoot, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const app = express();

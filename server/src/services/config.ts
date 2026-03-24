@@ -2,9 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AppConfig, Platform } from '../types';
-import { getAppRoot } from '../utils/appPaths';
+import { getDataRoot } from '../utils/appPaths';
 
-const CONFIG_PATH = path.join(getAppRoot(), 'config.json');
+const CONFIG_PATH = path.join(getDataRoot(), 'config.json');
 
 export function getCurrentPlatform(): Platform {
   return os.platform() === 'darwin' ? 'macos' : 'windows';
@@ -81,7 +81,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 /** Fill empty dir fields with defaults relative to the app root (exe directory). */
 function applyDirDefaults(config: AppConfig): AppConfig {
-  const appRoot = getAppRoot();
+  const appRoot = getDataRoot();
   const platform = getCurrentPlatform();
   const defaultNetworkBase = platform === 'macos'
     ? '//10.100.1.20/Build_Repository/Product_Release'

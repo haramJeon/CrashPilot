@@ -1,6 +1,6 @@
 {
   "name": "crashpilot-server",
-  "version": "0.9.0.7",
+  "version": "0.9.0.8",
   "private": true,
   "bin": "dist/index.js",
   "scripts": {

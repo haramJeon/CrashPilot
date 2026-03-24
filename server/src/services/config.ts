@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AppConfig, Platform } from '../types';
-import { getDataRoot } from '../utils/appPaths';
+import { getAppRoot, getDataRoot } from '../utils/appPaths';
 
 const CONFIG_PATH = path.join(getDataRoot(), 'config.json');
 
@@ -81,7 +81,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 /** Fill empty dir fields with defaults relative to the app root (exe directory). */
 function applyDirDefaults(config: AppConfig): AppConfig {
-  const appRoot = getDataRoot();
+  const appRoot = getAppRoot();
   const platform = getCurrentPlatform();
   const defaultNetworkBase = platform === 'macos'
     ? '//10.100.1.20/Build_Repository/Product_Release'

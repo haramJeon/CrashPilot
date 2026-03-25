@@ -66,7 +66,7 @@ export async function searchJiraIssues(
   jql: string,
   maxResults = 50,
 ): Promise<JiraIssue[]> {
-  const data = await jiraFetch<any>(config, '/rest/api/3/search', {
+  const data = await jiraFetch<any>(config, '/rest/api/3/search/jql', {
     jql,
     maxResults: String(maxResults),
     fields: 'summary,status,issuetype,description',

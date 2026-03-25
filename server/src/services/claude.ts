@@ -61,7 +61,7 @@ function killProcess(proc: ChildProcess): void {
   }
 }
 
-function runClaude(
+export function runClaude(
   prompt: string,
   cwd?: string,
   allowedDirs?: string[],

@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Settings, Plane } from 'lucide-react';
+import { LayoutDashboard, Settings, Plane, Tags } from 'lucide-react';
 import './Layout.css';
 
 export default function Layout() {
@@ -14,6 +14,10 @@ export default function Layout() {
           <NavLink to="/" end className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <LayoutDashboard size={20} />
             <span>Dashboard</span>
+          </NavLink>
+          <NavLink to="/classification" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+            <Tags size={20} />
+            <span>Classification</span>
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <Settings size={20} />

@@ -79,6 +79,12 @@ export interface AppConfig {
     defaultBranch: string;
     softwareTagFolders: Record<string, string>;
   };
+  jira?: {
+    url: string;
+    email: string;
+    apiToken: string;
+    projectKey: string;
+  };
 }
 
 export interface PipelineStep {
@@ -102,4 +108,41 @@ export interface PipelineRunHistory {
 export interface ApiSoftware {
   id: number;
   name: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Classification
+// ─────────────────────────────────────────────────────────────────────────
+
+export type ClassificationVerdict =
+  | 'validated'
+  | 'misclassified'
+  | 'assign'
+  | 'new_issue';
+
+export interface ClassificationResult {
+  crashId: number;
+  crashSubject: string;
+  exceptionCode?: string;
+  fingerprint: string;
+  currentIssueKey?: string;
+  verdict: ClassificationVerdict;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  suggestedIssueKey?: string;
+  suggestedIssueSummary?: string;
+}
+
+export interface ClassificationRun {
+  id: string;
+  runAt: string;
+  softwareId: number;
+  softwareName?: string;
+  startDate: string;
+  endDate: string;
+  totalCrashes: number;
+  processedCrashes: number;
+  results: ClassificationResult[];
+  status: 'running' | 'completed' | 'error';
+  errorMessage?: string;
 }

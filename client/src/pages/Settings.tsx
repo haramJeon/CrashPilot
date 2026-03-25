@@ -276,6 +276,44 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Jira */}
+        <div className="settings-section">
+          <h3>Jira Integration <span className="field-hint">(분류 기능에 사용 / read-only)</span></h3>
+          <div className="field">
+            <label>Jira URL</label>
+            <input
+              value={config.jira?.url ?? ''}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { email: '', apiToken: '', projectKey: '' }), url: e.target.value } })}
+              placeholder="https://yourcompany.atlassian.net"
+            />
+          </div>
+          <div className="field">
+            <label>Email</label>
+            <input
+              value={config.jira?.email ?? ''}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', apiToken: '', projectKey: '' }), email: e.target.value } })}
+              placeholder="your@email.com"
+            />
+          </div>
+          <div className="field">
+            <label>API Token <span className="field-hint">(id.atlassian.com → Security → API tokens)</span></label>
+            <input
+              type="password"
+              value={config.jira?.apiToken ?? ''}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', email: '', projectKey: '' }), apiToken: e.target.value } })}
+              placeholder="API Token"
+            />
+          </div>
+          <div className="field">
+            <label>Project Key <span className="field-hint">(이슈 분류에 사용할 프로젝트)</span></label>
+            <input
+              value={config.jira?.projectKey ?? ''}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', email: '', apiToken: '' }), projectKey: e.target.value } })}
+              placeholder="예: APOS"
+            />
+          </div>
+        </div>
+
         {/* Debugger */}
         <div className="settings-section">
           <h3>Debugging Tools <span className="platform-badge">{platform === 'macos' ? 'macOS' : 'Windows'}</span></h3>

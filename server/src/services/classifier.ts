@@ -1,0 +1,326 @@
+/**
+ * Crash 분류 서비스
+ *
+ * 분류 로직:
+ * 1. 각 crash의 스택 지문(fingerprint) 추출
+ * 2. 동일 지문끼리 그루핑
+ * 3. 그룹별 Claude 판정:
+ *    - issueKey 있음 → Jira 이슈와 매칭 검증 (validated / misclassified)
+ *    - issueKey 없음 → 기존 이슈 검색 (assign / new_issue)
+ *
+ * ⚠️  Jira write 작업(이슈 생성/수정)은 절대 자동으로 하지 않음
+ */
+import { CrashReport, ClassificationResult, ClassificationVerdict, AppConfig } from '../types';
+import { fetchJiraIssue, fetchOpenIssues, isJiraConfigured } from './jira';
+import { runClaude } from './claude';
+import { fetchReportDetail } from './crashReportServer';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fingerprint
+// ─────────────────────────────────────────────────────────────────────────
+
+const SYSTEM_DLLS = new Set([
+  'ntdll', 'kernel32', 'kernelbase', 'msvcrt', 'ucrtbase', 'msvcp140',
+  'vcruntime140', 'user32', 'gdi32', 'combase', 'ole32', 'rpcrt4',
+  'sechost', 'advapi32', 'ws2_32', 'shlwapi', 'shell32', 'clr', 'mscorwks',
+]);
+
+function isSystemFrame(dllName: string): boolean {
+  const name = dllName.toLowerCase().replace(/\.dll$/, '').split('!')[0];
+  return SYSTEM_DLLS.has(name);
+}
+
+/**
+ * 스택 지문 추출: mainStackTraces에서 자체 코드 프레임 상위 5개
+ * 없으면 stackTraces에서 추출
+ */
+export function extractFingerprint(crash: CrashReport): string {
+  const frames = crash.mainStackTraces.length > 0 ? crash.mainStackTraces : crash.stackTraces;
+  const ownFrames = frames
+    .filter((f) => !isSystemFrame(f.dllName))
+    .slice(0, 5);
+
+  if (ownFrames.length === 0) {
+    // 자체 프레임이 없으면 전체 상위 3개
+    return frames
+      .slice(0, 3)
+      .map((f) => (f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName))
+      .join(' | ');
+  }
+
+  return ownFrames
+    .map((f) => (f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName))
+    .join(' | ');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Claude 판정
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ClaudeVerdict {
+  verdict: ClassificationVerdict;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  suggestedIssueKey?: string;
+  suggestedIssueSummary?: string;
+}
+
+async function askClaude(
+  prompt: string,
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+  model?: string,
+): Promise<string> {
+  const { promise } = runClaude(prompt, undefined, [], onLog, shouldAbort, model);
+  return promise;
+}
+
+function parseClaudeJson(raw: string): any {
+  // JSON 블록 추출 (```json ... ``` 또는 { ... } 직접)
+  const jsonMatch = raw.match(/```json\s*([\s\S]*?)```/) || raw.match(/(\{[\s\S]*\})/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[1]);
+  }
+  return JSON.parse(raw.trim());
+}
+
+/** issueKey가 있는 그룹: Jira 이슈와 스택 매칭 검증 */
+async function validateMapping(
+  crash: CrashReport,
+  fingerprint: string,
+  config: AppConfig,
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+): Promise<ClaudeVerdict> {
+  const issueKey = crash.issueKey!;
+
+  let issueSummary = issueKey;
+  let issueDescription = '';
+  try {
+    const jiraIssue = await fetchJiraIssue(config, issueKey);
+    issueSummary = jiraIssue.summary;
+    issueDescription = jiraIssue.description ?? '';
+  } catch (e) {
+    onLog?.(`[classifier] Jira 이슈 조회 실패 ${issueKey}: ${e}`);
+  }
+
+  const prompt = `당신은 C++ 크래시 리포트와 Jira 이슈의 매핑이 올바른지 검증하는 전문가입니다.
+
+## 크래시 정보
+- Subject: ${crash.subject}
+- Exception Code: ${crash.exceptionCode ?? 'unknown'}
+- SW Version: ${crash.swVersion}
+- Stack Fingerprint (상위 프레임):
+  ${fingerprint}
+
+## 현재 매핑된 Jira 이슈
+- Key: ${issueKey}
+- Summary: ${issueSummary}
+${issueDescription ? `- Description: ${issueDescription}` : ''}
+
+## 판단 기준
+- 스택의 핵심 함수명과 DLL명이 Jira 이슈의 내용(Summary/Description)과 관련이 있으면 validated
+- 전혀 다른 기능/모듈의 크래시라면 misclassified
+- 확신하기 어려우면 confidence를 low로
+
+## 출력 형식 (JSON만, 마크다운 없이)
+{
+  "verdict": "validated" 또는 "misclassified",
+  "confidence": "high" 또는 "medium" 또는 "low",
+  "reason": "판단 이유 (한국어, 2-3문장)",
+  "suggestedIssueKey": "misclassified일 때만 다른 이슈 키 제안 (없으면 생략)"
+}`;
+
+  try {
+    const raw = await askClaude(prompt, onLog, shouldAbort, config.claude.model);
+    const parsed = parseClaudeJson(raw);
+    return {
+      verdict: parsed.verdict ?? 'validated',
+      confidence: parsed.confidence ?? 'low',
+      reason: parsed.reason ?? '',
+      suggestedIssueKey: parsed.suggestedIssueKey,
+      suggestedIssueSummary: parsed.suggestedIssueSummary,
+    };
+  } catch (e) {
+    return { verdict: 'validated', confidence: 'low', reason: `분석 실패: ${e}` };
+  }
+}
+
+/** issueKey가 없는 그룹: 기존 이슈 목록과 비교 */
+async function classifyUnmapped(
+  crash: CrashReport,
+  fingerprint: string,
+  openIssues: Array<{ key: string; summary: string; description?: string }>,
+  config: AppConfig,
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+): Promise<ClaudeVerdict> {
+  const issueListText = openIssues.length > 0
+    ? openIssues
+        .map((i) => `- ${i.key}: ${i.summary}${i.description ? ` | ${i.description.slice(0, 100)}` : ''}`)
+        .join('\n')
+    : '(열린 이슈 없음)';
+
+  const prompt = `당신은 C++ 크래시 리포트를 기존 Jira 이슈에 분류하는 전문가입니다.
+
+## 크래시 정보
+- Subject: ${crash.subject}
+- Exception Code: ${crash.exceptionCode ?? 'unknown'}
+- SW Version: ${crash.swVersion}
+- Stack Fingerprint (상위 프레임):
+  ${fingerprint}
+
+## 기존 열린 Jira 이슈 목록
+${issueListText}
+
+## 판단 기준
+- 스택의 핵심 함수명/모듈이 기존 이슈 중 하나와 동일하거나 매우 유사 → assign (suggestedIssueKey 필수)
+- 어느 이슈와도 관련 없는 새로운 유형의 크래시 → new_issue
+
+## 출력 형식 (JSON만, 마크다운 없이)
+{
+  "verdict": "assign" 또는 "new_issue",
+  "confidence": "high" 또는 "medium" 또는 "low",
+  "reason": "판단 이유 (한국어, 2-3문장)",
+  "suggestedIssueKey": "assign일 때 매칭된 이슈 키 (예: APOS-123)",
+  "suggestedIssueSummary": "매칭된 이슈 요약"
+}`;
+
+  try {
+    const raw = await askClaude(prompt, onLog, shouldAbort, config.claude.model);
+    const parsed = parseClaudeJson(raw);
+    return {
+      verdict: parsed.verdict ?? 'new_issue',
+      confidence: parsed.confidence ?? 'low',
+      reason: parsed.reason ?? '',
+      suggestedIssueKey: parsed.suggestedIssueKey,
+      suggestedIssueSummary: parsed.suggestedIssueSummary,
+    };
+  } catch (e) {
+    return { verdict: 'new_issue', confidence: 'low', reason: `분석 실패: ${e}` };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Main classification entry point
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ClassifyProgress {
+  current: number;
+  total: number;
+  message: string;
+}
+
+export async function classifyCrashes(
+  crashes: CrashReport[],
+  config: AppConfig,
+  onProgress?: (p: ClassifyProgress) => void,
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+): Promise<ClassificationResult[]> {
+  const results: ClassificationResult[] = [];
+  const total = crashes.length;
+
+  // Step 1: 스택 정보 없는 crash는 detail 조회 (최대 5개 동시)
+  onProgress?.({ current: 0, total, message: '스택 정보 로딩 중...' });
+  const enriched = await enrichWithDetails(crashes, onLog, shouldAbort);
+
+  // Step 2: 열린 Jira 이슈 목록 (미분류 crash 판정에 사용)
+  let openIssues: Array<{ key: string; summary: string; description?: string }> = [];
+  if (isJiraConfigured(config)) {
+    try {
+      onLog?.('[classifier] Jira 열린 이슈 목록 조회 중...');
+      openIssues = await fetchOpenIssues(config, 100);
+      onLog?.(`[classifier] 열린 이슈 ${openIssues.length}개 로드 완료`);
+    } catch (e) {
+      onLog?.(`[classifier] Jira 이슈 목록 조회 실패: ${e}`);
+    }
+  }
+
+  // Step 3: 각 crash 분류 (순차 처리 - Claude 호출 제한)
+  if (!isJiraConfigured(config)) {
+    onLog?.('[classifier] ⚠️  Jira 미설정 — Settings에서 Jira URL/Email/API Token/ProjectKey를 입력하면 더 정확한 분류가 가능합니다.');
+  }
+
+  for (let i = 0; i < enriched.length; i++) {
+    if (shouldAbort?.()) break;
+    const crash = enriched[i];
+    const fingerprint = extractFingerprint(crash);
+
+    // "None" 문자열은 유효한 issueKey가 아님 (crashReportOrganizer의 미매핑 표기)
+    const validIssueKey = crash.issueKey && crash.issueKey !== 'None' ? crash.issueKey : undefined;
+
+    onProgress?.({ current: i + 1, total, message: `분류 중: #${crash.id} ${crash.subject.slice(0, 40)}` });
+    onLog?.(`[classifier] [${i + 1}/${total}] crash #${crash.id} | issueKey: ${validIssueKey ?? '없음'} | fp: ${fingerprint.slice(0, 60) || '(스택 없음)'}`);
+
+    let verdict: ClaudeVerdict;
+
+    if (validIssueKey) {
+      // issueKey 있음 → 매핑 검증
+      if (isJiraConfigured(config)) {
+        onLog?.(`[classifier] → issueKey ${validIssueKey} 검증 중...`);
+        verdict = await validateMapping({ ...crash, issueKey: validIssueKey }, fingerprint, config, onLog, shouldAbort);
+      } else {
+        verdict = { verdict: 'validated', confidence: 'low', reason: 'Jira 미설정으로 검증 생략 (issueKey 있음)' };
+      }
+    } else {
+      // issueKey 없음 → 기존 이슈 비교
+      if (isJiraConfigured(config) && openIssues.length > 0) {
+        onLog?.(`[classifier] → 미분류, ${openIssues.length}개 이슈와 비교 중...`);
+        verdict = await classifyUnmapped(crash, fingerprint, openIssues, config, onLog, shouldAbort);
+      } else if (!isJiraConfigured(config)) {
+        verdict = { verdict: 'new_issue', confidence: 'low', reason: 'Jira 미설정으로 분류 불가' };
+      } else {
+        verdict = { verdict: 'new_issue', confidence: 'low', reason: '프로젝트에 열린 이슈가 없음' };
+      }
+    }
+
+    results.push({
+      crashId: crash.id,
+      crashSubject: crash.subject,
+      exceptionCode: crash.exceptionCode,
+      fingerprint,
+      currentIssueKey: validIssueKey,
+      verdict: verdict.verdict,
+      confidence: verdict.confidence,
+      reason: verdict.reason,
+      suggestedIssueKey: verdict.suggestedIssueKey,
+      suggestedIssueSummary: verdict.suggestedIssueSummary,
+    });
+  }
+
+  return results;
+}
+
+/** 스택 정보가 없는 crash에 대해 detail API 호출 (5개씩 병렬) */
+async function enrichWithDetails(
+  crashes: CrashReport[],
+  onLog?: (line: string) => void,
+  shouldAbort?: () => boolean,
+): Promise<CrashReport[]> {
+  const needsDetail = crashes.filter(
+    (c) => c.stackTraces.length === 0 && c.mainStackTraces.length === 0,
+  );
+
+  if (needsDetail.length === 0) return crashes;
+
+  onLog?.(`[classifier] 스택 없는 crash ${needsDetail.length}개 detail 조회 중...`);
+
+  const detailMap = new Map<number, CrashReport>();
+  const CONCURRENCY = 5;
+
+  for (let i = 0; i < needsDetail.length; i += CONCURRENCY) {
+    if (shouldAbort?.()) break;
+    const batch = needsDetail.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((c) => fetchReportDetail(c.id)),
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        detailMap.set(r.value.id, r.value);
+      }
+    }
+  }
+
+  return crashes.map((c) => detailMap.get(c.id) ?? c);
+}

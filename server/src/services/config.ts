@@ -56,6 +56,12 @@ const DEFAULT_CONFIG: AppConfig = {
       dsymPath: '',
     },
   },
+  jira: {
+    url: '',
+    email: '',
+    apiToken: '',
+    projectKey: '',
+  },
   git: {
     repoUrl: 'https://github.com/medit-desktop-app/applications.git',
     repoBaseDir: '',
@@ -117,6 +123,7 @@ export function loadConfig(): AppConfig {
           ...decrypted.git,
           softwareTagFolders: { ...DEFAULT_CONFIG.git.softwareTagFolders, ...decrypted.git?.softwareTagFolders },
         },
+        jira: { ...DEFAULT_CONFIG.jira, ...decrypted.jira },
       };
       return applyDirDefaults(merged);
     }

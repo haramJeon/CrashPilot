@@ -85,6 +85,12 @@ export interface AppConfig {
     defaultBranch: string;  // fallback when sw_version is empty (e.g. "develop")
     softwareTagFolders: Record<string, string>; // softwareId (as string) → tag root folder
   };
+  jira?: {
+    url: string;        // e.g. https://meditcompany.atlassian.net
+    email: string;
+    apiToken: string;
+    projectKey: string; // e.g. APOS
+  };
 }
 
 export interface PipelineStep {
@@ -116,6 +122,56 @@ export interface PipelineState {
   fixBranch?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Jira (read-only)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface JiraIssue {
+  key: string;
+  summary: string;
+  status: string;
+  issueType: string;
+  description?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Classification
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Classification verdict per crash */
+export type ClassificationVerdict =
+  | 'validated'     // issueKey exists and stack matches the Jira issue
+  | 'misclassified' // issueKey exists but stack does NOT match the Jira issue
+  | 'assign'        // no issueKey, but matches an existing Jira issue
+  | 'new_issue';    // no issueKey, no matching issue found → needs new issue
+
+export interface ClassificationResult {
+  crashId: number;
+  crashSubject: string;
+  exceptionCode?: string;
+  fingerprint: string;         // representative top frames
+  currentIssueKey?: string;    // from crashReportOrganizer
+  verdict: ClassificationVerdict;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;              // Claude's explanation (Korean)
+  suggestedIssueKey?: string;  // misclassified → correct issue, assign → matched issue
+  suggestedIssueSummary?: string;
+}
+
+export interface ClassificationRun {
+  id: string;
+  runAt: string;
+  softwareId: number;
+  softwareName?: string;
+  startDate: string;
+  endDate: string;
+  totalCrashes: number;
+  processedCrashes: number;
+  results: ClassificationResult[];
+  status: 'running' | 'completed' | 'error';
+  errorMessage?: string;
+}
+
 // Raw types from crashReportOrganizer API
 export interface ApiSoftware {
   id: number;
@@ -137,6 +193,7 @@ export interface ApiReport {
   serial_no?: string;
   software_id?: number;
   issue_key?: string;
+  issueKey?: string;
   // camelCase (detail endpoint)
   swVersion?: string;
   fileLink?: string;

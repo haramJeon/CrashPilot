@@ -123,7 +123,7 @@ function mapReportDetail(r: ApiReportDetail): CrashReport {
     exceptionCode: r.EXCEPTION_CODE_STR,
     bugcheck: r.BUGCHECK_STR,
     osType: detectOsFromPcInfo(r.pcInfo || []),
-    issueKey: r.issue_key,
+    issueKey: r.issue_key || r.issueKey,
     region: r.region,
     country: r.country,
     serialNo: r.serial_no || r.serialNo,

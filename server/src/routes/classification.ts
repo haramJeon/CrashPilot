@@ -75,6 +75,23 @@ export function classificationRouter(io: SocketIOServer): Router {
     res.json(run);
   });
 
+  // DELETE /api/classification/history/:runId
+  router.delete('/history/:runId', (req, res) => {
+    const file = runFilePath(req.params.runId);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'Run not found' });
+    fs.unlinkSync(file);
+    res.status(204).end();
+  });
+
+  // DELETE /api/classification/history
+  router.delete('/history', (_req, res) => {
+    ensureRunsDir();
+    fs.readdirSync(RUNS_DIR())
+      .filter((f) => f.endsWith('.json'))
+      .forEach((f) => fs.unlinkSync(path.join(RUNS_DIR(), f)));
+    res.status(204).end();
+  });
+
   // GET /api/classification/status
   router.get('/status', (_req, res) => {
     const config = loadConfig();
@@ -82,9 +99,9 @@ export function classificationRouter(io: SocketIOServer): Router {
   });
 
   // POST /api/classification/run
-  // body: { softwareId: number, startDate: string, endDate: string }
+  // body: { softwareId: number, startDate: string, endDate: string, strict?: boolean }
   router.post('/run', async (req, res) => {
-    const { softwareId, startDate, endDate } = req.body;
+    const { softwareId, startDate, endDate, strict } = req.body;
     if (!softwareId || !startDate || !endDate) {
       return res.status(400).json({ error: 'softwareId, startDate, endDate 필수' });
     }
@@ -92,11 +109,14 @@ export function classificationRouter(io: SocketIOServer): Router {
     const runId = `${softwareId}_${startDate}_${endDate}_${Date.now()}`;
     abortFlags.set(runId, false);
 
-    // 소프트웨어 이름 조회
+    // 소프트웨어 이름 및 스프린트 ID 조회
     let softwareName: string | undefined;
+    let sprintId: number | null | undefined;
     try {
       const softwares = await fetchSoftwares();
-      softwareName = softwares.find((s) => s.id === Number(softwareId))?.name;
+      const sw = softwares.find((s) => s.id === Number(softwareId));
+      softwareName = sw?.name;
+      sprintId = sw?.jira_sprint_id;
     } catch { /* ignore */ }
 
     const run: ClassificationRun = {
@@ -147,6 +167,9 @@ export function classificationRouter(io: SocketIOServer): Router {
           },
           (line) => emit('log', { message: line }),
           () => abortFlags.get(runId) === true,
+          Number(softwareId),
+          strict === true,
+          sprintId,
         );
 
         run.results = results;

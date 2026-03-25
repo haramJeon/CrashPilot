@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X, Search, Loader, Info } from 'lucide-react';
+import { RefreshCw, Play, AlertTriangle, CheckCircle, Clock, Cpu, Pencil, Check, X, Search, Loader, Info, Trash2 } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
-import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
+import { apiGet, apiPost, apiPatch, apiDelete } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import type { CrashReport, CrashStatus, ApiSoftware } from '../types';
 import './Dashboard.css';
@@ -17,6 +17,15 @@ function defaultDateRange() {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),
   };
+}
+
+const SESSION_KEY = 'dashboard-state';
+
+function loadSession(): { crashes: CrashReport[]; selectedSoftwareId: number; dateRange: { start: string; end: string }; statusMsg: string } | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 function TagCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: number, tag: string) => void }) {
@@ -123,16 +132,21 @@ function TagCell({ crash, onUpdate }: { crash: CrashReport; onUpdate: (id: numbe
 }
 
 export default function Dashboard() {
-  const [crashes, setCrashes] = useState<CrashReport[]>([]);
+  const sessionRef = useRef(loadSession());
+  const restored = sessionRef.current;
+
+  const [crashes, setCrashes] = useState<CrashReport[]>(restored?.crashes ?? []);
   const [softwares, setSoftwares] = useState<ApiSoftware[]>([]);
   const [historyIds, setHistoryIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('');
-  const [selectedSoftwareId, setSelectedSoftwareId] = useState<number>(0);
-  const [dateRange, setDateRange] = useState(defaultDateRange);
+  const [statusMsg, setStatusMsg] = useState(restored?.statusMsg ?? '');
+  const [selectedSoftwareId, setSelectedSoftwareId] = useState<number>(restored?.selectedSoftwareId ?? 0);
+  const [dateRange, setDateRange] = useState(restored?.dateRange ?? defaultDateRange());
   const navigate = useNavigate();
   const socketRef = useSocket();
   const tagFoldersRef = useRef<Record<string, string>>({});
+  // skip auto-fetch on first render if state was restored from session
+  const skipFetchRef = useRef(!!restored?.crashes?.length);
 
   // Build tag from folder + version: "pos" + "2.2.1.36" → "pos/2.2.1/36"
   const buildTag = (folder: string, swVersion: string): string => {
@@ -180,9 +194,15 @@ export default function Dashboard() {
 
 
   useEffect(() => {
+    if (skipFetchRef.current) { skipFetchRef.current = false; return; }
     if (selectedSoftwareId === 0) { setCrashes([]); return; }
     fetchCrashes();
   }, [selectedSoftwareId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist state to sessionStorage so Back navigation restores it
+  useEffect(() => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ crashes, selectedSoftwareId, dateRange, statusMsg }));
+  }, [crashes, selectedSoftwareId, dateRange, statusMsg]);
 
   const fetchCrashes = async () => {
     setLoading(true);
@@ -206,6 +226,16 @@ export default function Dashboard() {
       navigate(`/crash/${crash.id}`);
     } catch (e: unknown) {
       setStatusMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const clearHistory = async (e: React.MouseEvent, crashId: number) => {
+    e.stopPropagation();
+    try {
+      await apiDelete(`/pipeline/history/${crashId}`);
+      setHistoryIds((prev) => { const next = new Set(prev); next.delete(crashId); return next; });
+    } catch (err: unknown) {
+      setStatusMsg(`Error clearing history: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -319,9 +349,14 @@ export default function Dashboard() {
                     <td><StatusBadge status={crash.status} /></td>
                     <td>
                       {historyIds.has(crash.id) ? (
-                        <button className="btn btn-sm btn-info" onClick={(e) => { e.stopPropagation(); navigate(`/crash/${crash.id}`); }}>
-                          <Info size={14} /> View Result
-                        </button>
+                        <div className="action-group">
+                          <button className="btn btn-sm btn-info" onClick={(e) => { e.stopPropagation(); navigate(`/crash/${crash.id}`); }}>
+                            <Info size={14} /> View Result
+                          </button>
+                          <button className="btn btn-sm btn-ghost" onClick={(e) => clearHistory(e, crash.id)} title="Clear history">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       ) : (
                         <>
                           {crash.status === 'new' && (

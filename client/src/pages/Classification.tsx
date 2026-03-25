@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { apiGet, apiPost } from '../hooks/useApi';
+import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react';
+import { apiGet, apiPost, apiDelete } from '../hooks/useApi';
 import { useSocket } from '../hooks/useSocket';
 import type { ApiSoftware, ClassificationRun, ClassificationResult, ClassificationVerdict } from '../types';
 import './Classification.css';
@@ -260,6 +260,20 @@ export default function Classification() {
     setRunning(false);
   };
 
+  const deleteRun = async (e: React.MouseEvent, runId: string) => {
+    e.stopPropagation();
+    await apiDelete(`/classification/history/${runId}`).catch(() => {});
+    setHistory((prev) => prev.filter((r) => r.id !== runId));
+    if (selectedRun?.id === runId) { setSelectedRun(null); setResults(null); }
+  };
+
+  const clearAllHistory = async () => {
+    await apiDelete('/classification/history').catch(() => {});
+    setHistory([]);
+    setSelectedRun(null);
+    setResults(null);
+  };
+
   const loadRunResults = async (run: ClassificationRun) => {
     const full = await apiGet<ClassificationRun>(`/classification/results/${run.id}`);
     setSelectedRun(full);
@@ -361,9 +375,14 @@ export default function Classification() {
           <div className="panel">
             <div className="panel-header">
               <h3>히스토리</h3>
-              <button className="btn-icon" onClick={loadHistory} title="새로고침">
-                <RefreshCw size={14} />
-              </button>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button className="btn-icon" onClick={loadHistory} title="새로고침">
+                  <RefreshCw size={14} />
+                </button>
+                <button className="btn-icon btn-icon-danger" onClick={clearAllHistory} title="전체 삭제" disabled={history.length === 0}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
             {history.length === 0 ? (
               <p className="empty-text">실행 기록 없음</p>
@@ -382,6 +401,9 @@ export default function Classification() {
                     <div className="history-item-meta">
                       <span className={`status-dot status-${run.status}`} />
                       {run.processedCrashes}/{run.totalCrashes}건
+                      <button className="btn-icon btn-icon-danger" onClick={(e) => deleteRun(e, run.id)} title="삭제">
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   </li>
                 ))}

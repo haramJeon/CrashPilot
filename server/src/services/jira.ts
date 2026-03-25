@@ -84,19 +84,25 @@ export async function searchJiraIssues(
  * 열린 이슈 목록 조회 (read-only)
  * @param projectKeys crash의 issueKey에서 자동 추출한 프로젝트 키 목록 (e.g. ["APOS"])
  *                    없으면 전체 프로젝트에서 조회 (너무 많을 수 있으므로 projectKeys 권장)
+ * @param sprintId 소프트웨어에 설정된 Jira 스프린트 ID — 지정 시 해당 스프린트 이슈만 조회
  */
 export async function fetchOpenIssues(
   config: AppConfig,
   projectKeys: string[],
   maxResults = 100,
+  sprintId?: number | null,
 ): Promise<JiraIssue[]> {
-  let jql: string;
-  if (projectKeys.length > 0) {
+  const conditions: string[] = [];
+
+  if (sprintId) {
+    conditions.push(`sprint = ${sprintId}`);
+  } else if (projectKeys.length > 0) {
     const projectList = projectKeys.map((k) => `"${k}"`).join(', ');
-    jql = `project in (${projectList}) AND statusCategory != Done ORDER BY updated DESC`;
-  } else {
-    jql = `statusCategory != Done ORDER BY updated DESC`;
+    conditions.push(`project in (${projectList})`);
   }
+
+  conditions.push('statusCategory != Done');
+  const jql = conditions.join(' AND ') + ' ORDER BY updated DESC';
   return searchJiraIssues(config, jql, maxResults);
 }
 

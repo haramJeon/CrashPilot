@@ -7,6 +7,9 @@ import type { CrashReport } from '../types';
 // In-memory store
 let crashReports: CrashReport[] = [];
 
+// issueKey lookup: populated from list API so direct-navigation crash fetches can still show links
+const issueKeyCache = new Map<number, string>();
+
 export function updateCrashRecord(id: number, updates: Partial<CrashReport>): void {
   const idx = crashReports.findIndex((c) => c.id === id);
   if (idx >= 0) crashReports[idx] = { ...crashReports[idx], ...updates };
@@ -44,6 +47,8 @@ export function crashRouter(io: SocketIOServer): Router {
       ]);
       const swMap = new Map(softwares.map((s) => [s.id, s.name]));
       crashReports = reports.map((r) => ({ ...r, softwareName: swMap.get(r.softwareId) }));
+      // Populate issueKey cache so direct-navigation fetches can find it later
+      crashReports.forEach((r) => { if (r.issueKey && r.issueKey !== 'None') issueKeyCache.set(r.id, r.issueKey); });
       io.emit('crashes:updated', crashReports);
       res.json({ count: crashReports.length, crashes: crashReports });
 
@@ -88,9 +93,12 @@ export function crashRouter(io: SocketIOServer): Router {
     // Fetch detail from API to get stack traces
     try {
       const detail = await fetchReportDetail(id);
+      // Preserve issueKey: detail API may not return it, but list API (cache/issueKeyCache) has it
+      const resolvedIssueKey = detail.issueKey || cached?.issueKey || issueKeyCache.get(id);
+      if (resolvedIssueKey) detail.issueKey = resolvedIssueKey;
       const idx = crashReports.findIndex((c) => c.id === id);
       if (idx >= 0) {
-        crashReports[idx] = { ...crashReports[idx], ...detail };
+        crashReports[idx] = { ...crashReports[idx], ...detail, issueKey: resolvedIssueKey || crashReports[idx].issueKey };
         return res.json(crashReports[idx]);
       }
       return res.json(detail);

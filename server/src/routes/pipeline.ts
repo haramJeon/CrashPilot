@@ -67,6 +67,22 @@ export function pipelineRouter(io: SocketIOServer): Router {
     res.json(history);
   });
 
+  router.delete('/history/:crashId', (req, res) => {
+    const file = path.join(HISTORY_DIR, `${req.params.crashId}.json`);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'No history found' });
+    fs.unlinkSync(file);
+    res.status(204).end();
+  });
+
+  router.delete('/history', (_req, res) => {
+    if (fs.existsSync(HISTORY_DIR)) {
+      fs.readdirSync(HISTORY_DIR)
+        .filter((f) => f.endsWith('.json'))
+        .forEach((f) => fs.unlinkSync(path.join(HISTORY_DIR, f)));
+    }
+    res.status(204).end();
+  });
+
   function emitSteps(crashId: string, steps: PipelineStep[]) {
     io.emit('pipeline:steps', { crashId, steps });
     updateCrashRecord(Number(crashId), { pipelineSteps: [...steps] });

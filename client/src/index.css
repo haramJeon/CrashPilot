@@ -125,6 +125,17 @@ input, select, textarea {
 .btn-danger { background: rgba(239, 68, 68, 0.15); color: var(--error); gap: 6px; }
 .btn-danger:hover { background: rgba(239, 68, 68, 0.25); }
 
+.btn-ghost { background: transparent; color: var(--text-muted); padding: 4px 6px; }
+.btn-ghost:hover { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+
+.btn-icon { background: none; border: none; padding: 4px 6px; border-radius: 4px; color: var(--text-muted); cursor: pointer; line-height: 1; display: inline-flex; align-items: center; }
+.btn-icon:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+
+.btn-icon-danger { background: none; border: none; padding: 4px 6px; border-radius: 4px; color: var(--text-muted); cursor: pointer; line-height: 1; display: inline-flex; align-items: center; }
+.btn-icon-danger:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+
+.action-group { display: flex; align-items: center; gap: 4px; }
+
 .btn-ai { background: #6e40c9; color: white; gap: 6px; }
 .btn-ai:hover { background: #8957e5; }
 

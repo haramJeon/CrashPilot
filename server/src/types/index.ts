@@ -142,7 +142,8 @@ export type ClassificationVerdict =
   | 'validated'     // issueKey exists and stack matches the Jira issue
   | 'misclassified' // issueKey exists but stack does NOT match the Jira issue
   | 'assign'        // no issueKey, but matches an existing Jira issue
-  | 'new_issue';    // no issueKey, no matching issue found → needs new issue
+  | 'new_issue'     // no issueKey, no matching issue found → needs new issue
+  | 'no_stack';     // stack trace absent → cannot classify
 
 export interface ClassificationResult {
   crashId: number;
@@ -175,6 +176,7 @@ export interface ClassificationRun {
 export interface ApiSoftware {
   id: number;
   name: string;
+  jira_sprint_id?: number | null;
 }
 
 export interface ApiReport {

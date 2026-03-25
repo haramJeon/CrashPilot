@@ -5,7 +5,7 @@ import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import PipelineView from '../components/PipelineView';
-import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory } from '../types';
+import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory, AppConfig } from '../types';
 import './CrashDetail.css';
 
 interface RemoteRef { name: string; short: string; type: 'branch' | 'tag'; }
@@ -14,6 +14,7 @@ export default function CrashDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [crash, setCrash] = useState<CrashReport | null>(null);
+  const [config, setConfig] = useState<Pick<AppConfig, 'crashReportServer' | 'jira'> | null>(null);
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -48,6 +49,8 @@ export default function CrashDetail() {
     if (!id) return;
 
     socketReceivedRef.current = false;
+
+    apiGet<AppConfig>('/config').then((c) => setConfig(c)).catch(() => {});
 
     apiGet<CrashReport>(`/crash/${id}`).then((data) => {
       setCrash(data);
@@ -129,6 +132,7 @@ export default function CrashDetail() {
   };
 
 
+  const hasStack = (crash?.stackTraces?.length ?? 0) > 0 || (crash?.mainStackTraces?.length ?? 0) > 0;
   const isRunning = steps.some((s) => s.status === 'running');
   const isAwaitingAI = steps.some((s) => s.status === 'awaiting');
 
@@ -252,11 +256,47 @@ export default function CrashDetail() {
 
             <span>{crash.region || ''}</span>
             <span>{new Date(crash.receivedAt).toLocaleString('ko-KR')}</span>
+            {config && (() => {
+              const apiUrl = new URL(config.crashReportServer.url.replace(/\/$/, ''));
+              apiUrl.port = '5000';
+              const organizerBase = apiUrl.origin;
+              return (
+                <span className="detail-ext-links">
+                  <a
+                    href={`${organizerBase}/reports/${crash.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="detail-ext-link"
+                    title="View in CrashOrganizer"
+                  >
+                    <ExternalLink size={13} />
+                    CrashOrganizer
+                  </a>
+                  {config.jira?.url && crash.issueKey && crash.issueKey !== 'None' && (
+                    <a
+                      href={`${config.jira.url.replace(/\/$/, '')}/browse/${crash.issueKey}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="detail-ext-link detail-ext-link-jira"
+                      title="View Jira issue"
+                    >
+                      <ExternalLink size={13} />
+                      {crash.issueKey}
+                    </a>
+                  )}
+                </span>
+              );
+            })()}
           </div>
         </div>
         <div className="detail-actions">
           <StatusBadge status={crash.status} />
-          {isRunning ? (
+          {!hasStack ? (
+            <span className="no-stack-badge">
+              <AlertTriangle size={14} />
+              분석 불가 (스택 없음)
+            </span>
+          ) : isRunning ? (
             <button className="btn btn-danger" onClick={stopPipeline}>
               <Square size={16} />
               Stop

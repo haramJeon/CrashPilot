@@ -15,6 +15,7 @@ const VERDICT_META: Record<ClassificationVerdict, { label: string; color: string
   misclassified: { label: '잘못된 매핑',    color: 'misclassified', icon: <AlertTriangle size={14} /> },
   assign:        { label: '이슈 매핑 필요', color: 'assign',        icon: <Link2 size={14} /> },
   new_issue:     { label: '신규 이슈 필요', color: 'new_issue',     icon: <Plus size={14} /> },
+  no_stack:      { label: '분석 불가 (스택 없음)', color: 'no_stack', icon: <AlertTriangle size={14} /> },
 };
 
 function VerdictBadge({ verdict }: { verdict: ClassificationVerdict }) {
@@ -35,7 +36,7 @@ function ConfidenceDot({ confidence }: { confidence: 'high' | 'medium' | 'low' }
 // Result Row
 // ─────────────────────────────────────────────────────────────────────────
 
-function ResultRow({ result, jiraUrl }: { result: ClassificationResult; jiraUrl: string }) {
+function ResultRow({ result, jiraUrl, crashServerUrl }: { result: ClassificationResult; jiraUrl: string; crashServerUrl: string }) {
   const [open, setOpen] = useState(false);
 
   const issueHref = (key: string) =>
@@ -54,6 +55,19 @@ function ResultRow({ result, jiraUrl }: { result: ClassificationResult; jiraUrl:
           >
             #{result.crashId}
           </Link>
+          {crashServerUrl && (
+            <a
+              href={`${crashServerUrl}/reports/${result.crashId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="detail-ext-link"
+              title="View in CrashOrganizer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink size={12} />
+              CrashOrganizer
+            </a>
+          )}
           <span className="result-subject">{result.crashSubject}</span>
           {result.exceptionCode && (
             <code className="result-exception">{result.exceptionCode}</code>
@@ -125,8 +139,10 @@ export default function Classification() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [jiraUrl, setJiraUrl] = useState('');
+  const [crashServerUrl, setCrashServerUrl] = useState('');
   const [jiraConfigured, setJiraConfigured] = useState(false);
 
+  const [strict, setStrict] = useState(false);
   const [running, setRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
@@ -138,7 +154,7 @@ export default function Classification() {
   const [selectedRun, setSelectedRun] = useState<ClassificationRun | null>(null);
   const [filterVerdict, setFilterVerdict] = useState<ClassificationVerdict | ''>('');
 
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsBoxRef = useRef<HTMLDivElement>(null);
   const socketRef = useSocket();
 
   // 초기 데이터 로드
@@ -147,8 +163,15 @@ export default function Classification() {
     apiGet<{ jiraConfigured: boolean }>('/classification/status')
       .then(({ jiraConfigured }) => setJiraConfigured(jiraConfigured))
       .catch(() => {});
-    apiGet<{ jira?: { url: string } }>('/config')
-      .then((cfg) => { if (cfg.jira?.url) setJiraUrl(cfg.jira.url); })
+    apiGet<{ jira?: { url: string }; crashReportServer?: { url: string } }>('/config')
+      .then((cfg) => {
+        if (cfg.jira?.url) setJiraUrl(cfg.jira.url);
+        if (cfg.crashReportServer?.url) {
+          const apiUrl = new URL(cfg.crashReportServer.url.replace(/\/$/, ''));
+          apiUrl.port = '5000';
+          setCrashServerUrl(apiUrl.origin);
+        }
+      })
       .catch(() => {});
     loadHistory();
 
@@ -200,9 +223,10 @@ export default function Classification() {
     };
   }, [socketRef, currentRunId]);
 
-  // 로그 자동 스크롤
+  // 로그 자동 스크롤 (log-box 내부만 스크롤, 페이지 스크롤 유지)
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const box = logsBoxRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
   }, [logs]);
 
   const loadHistory = () => {
@@ -221,6 +245,7 @@ export default function Classification() {
         softwareId: Number(softwareId),
         startDate,
         endDate,
+        strict,
       });
       setCurrentRunId(runId);
     } catch (e: any) {
@@ -252,6 +277,7 @@ export default function Classification() {
     misclassified: displayResults.filter((r) => r.verdict === 'misclassified').length,
     assign: displayResults.filter((r) => r.verdict === 'assign').length,
     new_issue: displayResults.filter((r) => r.verdict === 'new_issue').length,
+    no_stack: displayResults.filter((r) => r.verdict === 'no_stack').length,
   };
 
   return (
@@ -294,6 +320,24 @@ export default function Classification() {
             <div className="field">
               <label>종료 날짜</label>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} disabled={running} />
+            </div>
+
+            <div className="field">
+              <label>검증 모드</label>
+              <button
+                className={`strict-toggle ${strict ? 'strict-on' : 'strict-off'}`}
+                onClick={() => setStrict((v) => !v)}
+                disabled={running}
+                type="button"
+              >
+                <span className="strict-toggle-indicator" />
+                <span>{strict ? 'Strict' : 'Lenient'}</span>
+              </button>
+              <p className="strict-desc">
+                {strict
+                  ? 'OS·스택이 일치해야 validated 판정'
+                  : 'call stack 흐름·모듈 등을 종합 고려 — 가능성 있으면 validated'}
+              </p>
             </div>
 
             {!running ? (
@@ -361,9 +405,8 @@ export default function Classification() {
                   <span className="progress-text">{progress.message} ({progress.current}/{progress.total})</span>
                 </div>
               )}
-              <div className="log-box">
+              <div className="log-box" ref={logsBoxRef}>
                 {logs.map((line, i) => <div key={i} className="log-line">{line}</div>)}
-                <div ref={logsEndRef} />
               </div>
             </div>
           )}
@@ -399,7 +442,7 @@ export default function Classification() {
               ) : (
                 <div className="results-list">
                   {filtered.map((r) => (
-                    <ResultRow key={r.crashId} result={r} jiraUrl={jiraUrl} />
+                    <ResultRow key={r.crashId} result={r} jiraUrl={jiraUrl} crashServerUrl={crashServerUrl} />
                   ))}
                 </div>
               )}

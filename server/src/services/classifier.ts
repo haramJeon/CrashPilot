@@ -13,7 +13,7 @@
 import { CrashReport, ClassificationResult, ClassificationVerdict, AppConfig } from '../types';
 import { fetchJiraIssue, fetchOpenIssues, isJiraConfigured } from './jira';
 import { runClaude } from './claude';
-import { fetchReportDetail } from './crashReportServer';
+import { fetchReportDetail, fetchReports } from './crashReportServer';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Fingerprint
@@ -91,6 +91,7 @@ async function validateMapping(
   config: AppConfig,
   onLog?: (line: string) => void,
   shouldAbort?: () => boolean,
+  strict?: boolean,
 ): Promise<ClaudeVerdict> {
   const issueKey = crash.issueKey!;
 
@@ -104,14 +105,25 @@ async function validateMapping(
     onLog?.(`[classifier] Jira 이슈 조회 실패 ${issueKey}: ${e}`);
   }
 
+  // 전체 스택 프레임 (fingerprint는 상위 5개만이므로 전체도 함께 제공)
+  const allFrames = crash.mainStackTraces.length > 0 ? crash.mainStackTraces : crash.stackTraces;
+  const fullStack = allFrames.length > 0
+    ? allFrames
+        .slice(0, 30)
+        .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
+        .join('\n')
+    : '(스택 없음)';
+
   const prompt = `당신은 C++ 크래시 리포트와 Jira 이슈의 매핑이 올바른지 검증하는 전문가입니다.
 
 ## 크래시 정보
 - Subject: ${crash.subject}
 - Exception Code: ${crash.exceptionCode ?? 'unknown'}
 - SW Version: ${crash.swVersion}
-- Stack Fingerprint (상위 프레임):
-  ${fingerprint}
+- Stack Fingerprint (핵심 프레임):
+  ${fingerprint || '(없음)'}
+- Full Stack (상위 30프레임):
+${fullStack}
 
 ## 현재 매핑된 Jira 이슈
 - Key: ${issueKey}
@@ -119,9 +131,16 @@ async function validateMapping(
 ${issueDescription ? `- Description: ${issueDescription}` : ''}
 
 ## 판단 기준
-- 스택의 핵심 함수명과 DLL명이 Jira 이슈의 내용(Summary/Description)과 관련이 있으면 validated
+${strict
+  ? `- 스택의 핵심 함수명과 DLL명이 Jira 이슈의 내용(Summary/Description)과 관련이 있으면 validated
 - 전혀 다른 기능/모듈의 크래시라면 misclassified
-- 확신하기 어려우면 confidence를 low로
+- 확신하기 어려우면 confidence를 low로`
+  : `- SW 버전 차이는 판단 근거로 사용하지 않는다
+- 스택(Full Stack 포함) 어디에든 Jira 이슈 Summary/Description에 언급된 함수명·모듈명이 등장하면 validated
+- 크래시 위치(발생 함수·모듈)가 Jira 이슈와 같거나 인접한 call stack 흐름이면 validated
+- 스택 정보가 부족하거나 비교가 불확실한 경우에도 기본값은 validated (confidence: low)
+- 스택에 공통 함수/모듈이 전혀 없고 완전히 다른 기능 영역임이 명확할 때만 misclassified`
+}
 
 ## 출력 형식 (JSON만, 마크다운 없이)
 {
@@ -227,12 +246,42 @@ export interface ClassifyProgress {
   message: string;
 }
 
+/** 현재 배치에서 project key를 못 찾으면 해당 소프트웨어의 최신 리포트에서 fallback 탐색 */
+async function detectProjectKeysWithFallback(
+  crashes: CrashReport[],
+  softwareId: number | undefined,
+  onLog?: (line: string) => void,
+): Promise<string[]> {
+  const keys = detectProjectKeys(crashes);
+  if (keys.length > 0) return keys;
+  if (!softwareId) return [];
+
+  onLog?.('[classifier] 현재 배치에 issueKey 없음 — 동일 소프트웨어 최신 리포트에서 project key 탐색 중...');
+  try {
+    // 최신 페이지 1개만 조회 (최대 20건 정도)
+    const historical = await fetchReports(softwareId, {}, 1);
+    const fallbackKeys = detectProjectKeys(historical);
+    if (fallbackKeys.length > 0) {
+      onLog?.(`[classifier] fallback project key 감지: ${fallbackKeys.join(', ')}`);
+    } else {
+      onLog?.('[classifier] fallback에서도 issueKey 없음 — 전체 프로젝트에서 이슈 검색');
+    }
+    return fallbackKeys;
+  } catch (e) {
+    onLog?.(`[classifier] fallback 조회 실패: ${e}`);
+    return [];
+  }
+}
+
 export async function classifyCrashes(
   crashes: CrashReport[],
   config: AppConfig,
   onProgress?: (p: ClassifyProgress) => void,
   onLog?: (line: string) => void,
   shouldAbort?: () => boolean,
+  softwareId?: number,
+  strict?: boolean,
+  sprintId?: number | null,
 ): Promise<ClassificationResult[]> {
   const results: ClassificationResult[] = [];
   const total = crashes.length;
@@ -245,13 +294,14 @@ export async function classifyCrashes(
   let openIssues: Array<{ key: string; summary: string; description?: string }> = [];
   if (isJiraConfigured(config)) {
     try {
-      const projectKeys = detectProjectKeys(enriched);
-      if (projectKeys.length > 0) {
-        onLog?.(`[classifier] 프로젝트 키 자동 감지: ${projectKeys.join(', ')}`);
-      } else {
-        onLog?.('[classifier] issueKey 없음 — 전체 프로젝트에서 이슈 검색');
+      if (sprintId) {
+        onLog?.(`[classifier] 스프린트 ID ${sprintId} 기준으로 이슈 조회 중...`);
       }
-      openIssues = await fetchOpenIssues(config, projectKeys, 100);
+      const projectKeys = await detectProjectKeysWithFallback(enriched, softwareId, onLog);
+      if (!sprintId && projectKeys.length > 0) {
+        onLog?.(`[classifier] 프로젝트 키 자동 감지: ${projectKeys.join(', ')}`);
+      }
+      openIssues = await fetchOpenIssues(config, projectKeys, 100, sprintId);
       onLog?.(`[classifier] 열린 이슈 ${openIssues.length}개 로드 완료`);
     } catch (e) {
       onLog?.(`[classifier] Jira 이슈 목록 조회 실패: ${e}`);
@@ -274,13 +324,28 @@ export async function classifyCrashes(
     onProgress?.({ current: i + 1, total, message: `분류 중: #${crash.id} ${crash.subject.slice(0, 40)}` });
     onLog?.(`[classifier] [${i + 1}/${total}] crash #${crash.id} | issueKey: ${validIssueKey ?? '없음'} | fp: ${fingerprint.slice(0, 60) || '(스택 없음)'}`);
 
+    // 스택 없음 → 분석 불가
+    if (!fingerprint) {
+      results.push({
+        crashId: crash.id,
+        crashSubject: crash.subject,
+        exceptionCode: crash.exceptionCode,
+        fingerprint: '',
+        currentIssueKey: validIssueKey,
+        verdict: 'no_stack',
+        confidence: 'low',
+        reason: '스택 정보가 없어 분석할 수 없습니다.',
+      });
+      continue;
+    }
+
     let verdict: ClaudeVerdict;
 
     if (validIssueKey) {
       // issueKey 있음 → 매핑 검증
       if (isJiraConfigured(config)) {
         onLog?.(`[classifier] → issueKey ${validIssueKey} 검증 중...`);
-        verdict = await validateMapping({ ...crash, issueKey: validIssueKey }, fingerprint, config, onLog, shouldAbort);
+        verdict = await validateMapping({ ...crash, issueKey: validIssueKey }, fingerprint, config, onLog, shouldAbort, strict);
       } else {
         verdict = { verdict: 'validated', confidence: 'low', reason: 'Jira 미설정으로 검증 생략 (issueKey 있음)' };
       }

@@ -83,7 +83,6 @@ export interface AppConfig {
     url: string;
     email: string;
     apiToken: string;
-    projectKey: string;
   };
 }
 

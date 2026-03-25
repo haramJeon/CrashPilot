@@ -80,11 +80,23 @@ export async function searchJiraIssues(
   }));
 }
 
-/** 프로젝트의 열린 이슈 목록 조회 (read-only) */
-export async function fetchOpenIssues(config: AppConfig, maxResults = 100): Promise<JiraIssue[]> {
-  const projectKey = config.jira?.projectKey;
-  if (!projectKey) throw new Error('Jira projectKey가 설정되지 않았습니다.');
-  const jql = `project = ${projectKey} AND statusCategory != Done ORDER BY updated DESC`;
+/**
+ * 열린 이슈 목록 조회 (read-only)
+ * @param projectKeys crash의 issueKey에서 자동 추출한 프로젝트 키 목록 (e.g. ["APOS"])
+ *                    없으면 전체 프로젝트에서 조회 (너무 많을 수 있으므로 projectKeys 권장)
+ */
+export async function fetchOpenIssues(
+  config: AppConfig,
+  projectKeys: string[],
+  maxResults = 100,
+): Promise<JiraIssue[]> {
+  let jql: string;
+  if (projectKeys.length > 0) {
+    const projectList = projectKeys.map((k) => `"${k}"`).join(', ');
+    jql = `project in (${projectList}) AND statusCategory != Done ORDER BY updated DESC`;
+  } else {
+    jql = `statusCategory != Done ORDER BY updated DESC`;
+  }
   return searchJiraIssues(config, jql, maxResults);
 }
 

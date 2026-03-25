@@ -89,7 +89,6 @@ export interface AppConfig {
     url: string;        // e.g. https://meditcompany.atlassian.net
     email: string;
     apiToken: string;
-    projectKey: string; // e.g. APOS
   };
 }
 

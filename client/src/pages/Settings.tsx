@@ -283,7 +283,7 @@ export default function Settings() {
             <label>Jira URL</label>
             <input
               value={config.jira?.url ?? ''}
-              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { email: '', apiToken: '', projectKey: '' }), url: e.target.value } })}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { email: '', apiToken: '' }), url: e.target.value } })}
               placeholder="https://yourcompany.atlassian.net"
             />
           </div>
@@ -291,7 +291,7 @@ export default function Settings() {
             <label>Email</label>
             <input
               value={config.jira?.email ?? ''}
-              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', apiToken: '', projectKey: '' }), email: e.target.value } })}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', apiToken: '' }), email: e.target.value } })}
               placeholder="your@email.com"
             />
           </div>
@@ -300,18 +300,11 @@ export default function Settings() {
             <input
               type="password"
               value={config.jira?.apiToken ?? ''}
-              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', email: '', projectKey: '' }), apiToken: e.target.value } })}
+              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', email: '' }), apiToken: e.target.value } })}
               placeholder="API Token"
             />
           </div>
-          <div className="field">
-            <label>Project Key <span className="field-hint">(이슈 분류에 사용할 프로젝트)</span></label>
-            <input
-              value={config.jira?.projectKey ?? ''}
-              onChange={(e) => setConfig({ ...config, jira: { ...(config.jira ?? { url: '', email: '', apiToken: '' }), projectKey: e.target.value } })}
-              placeholder="예: APOS"
-            />
-          </div>
+          <p className="field-help">Project Key는 crash의 issueKey에서 자동으로 감지됩니다. (예: APOS-2486 → APOS)</p>
         </div>
 
         {/* Debugger */}

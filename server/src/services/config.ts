@@ -60,7 +60,6 @@ const DEFAULT_CONFIG: AppConfig = {
     url: '',
     email: '',
     apiToken: '',
-    projectKey: '',
   },
   git: {
     repoUrl: 'https://github.com/medit-desktop-app/applications.git',

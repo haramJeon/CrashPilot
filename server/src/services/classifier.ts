@@ -202,6 +202,22 @@ ${issueListText}
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Project key auto-detection
+// ─────────────────────────────────────────────────────────────────────────
+
+/** crash의 issueKey 목록에서 Jira 프로젝트 키를 자동 추출 (예: "APOS-2486" → "APOS") */
+export function detectProjectKeys(crashes: CrashReport[]): string[] {
+  const keys = new Set<string>();
+  for (const crash of crashes) {
+    if (crash.issueKey && crash.issueKey !== 'None') {
+      const match = crash.issueKey.match(/^([A-Z][A-Z0-9]+)-\d+$/);
+      if (match) keys.add(match[1]);
+    }
+  }
+  return Array.from(keys);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Main classification entry point
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -225,12 +241,17 @@ export async function classifyCrashes(
   onProgress?.({ current: 0, total, message: '스택 정보 로딩 중...' });
   const enriched = await enrichWithDetails(crashes, onLog, shouldAbort);
 
-  // Step 2: 열린 Jira 이슈 목록 (미분류 crash 판정에 사용)
+  // Step 2: crash의 issueKey에서 프로젝트 키 자동 추출 후 열린 이슈 목록 조회
   let openIssues: Array<{ key: string; summary: string; description?: string }> = [];
   if (isJiraConfigured(config)) {
     try {
-      onLog?.('[classifier] Jira 열린 이슈 목록 조회 중...');
-      openIssues = await fetchOpenIssues(config, 100);
+      const projectKeys = detectProjectKeys(enriched);
+      if (projectKeys.length > 0) {
+        onLog?.(`[classifier] 프로젝트 키 자동 감지: ${projectKeys.join(', ')}`);
+      } else {
+        onLog?.('[classifier] issueKey 없음 — 전체 프로젝트에서 이슈 검색');
+      }
+      openIssues = await fetchOpenIssues(config, projectKeys, 100);
       onLog?.(`[classifier] 열린 이슈 ${openIssues.length}개 로드 완료`);
     } catch (e) {
       onLog?.(`[classifier] Jira 이슈 목록 조회 실패: ${e}`);

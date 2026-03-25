@@ -13,31 +13,41 @@
 - All code changes, file edits, and git operations must be limited to the local project folder only
 - Remote servers and DBs are **read-only** data sources — only GET/SELECT operations allowed
 
-## Crash Analysis Guidelines
+## Project Overview
+CrashPilot is a desktop tool that fetches C++ crash reports, runs analysis via Claude CLI, and creates GitHub PRs with suggested fixes.
 
-### Reading CDB Output
-- Focus on the top frame with source info — frames without symbols are usually OS/runtime internals
-- `EXCEPTION_ACCESS_VIOLATION` (0xC0000005): check read/write address; address near 0x0~0xFF = null deref, large address = corrupted pointer
-- `EXCEPTION_STACK_OVERFLOW` (0xC00000FD): look for recursive call patterns in the stack
-- `0xC0000374` (heap corruption): the crash site is often NOT where corruption happened — look for the earliest suspicious frame
-- `0x40000015` / `STATUS_FATAL_APP_EXIT`: usually std::terminate — look for unhandled exception or pure virtual call
+**Stack**: Express (Node.js/TypeScript) backend + React/Vite frontend, packaged as a standalone executable.
 
-### Common C++ Crash Patterns
-- **Null/dangling pointer**: check object lifetime — raw ptr after container clear, ptr to local var escaping scope
-- **Use-after-free**: check shared_ptr cycles, callbacks holding raw refs to destroyed objects
-- **Iterator invalidation**: modification of container (insert/erase) during iteration
-- **Thread safety**: non-deterministic crashes often mean unsynchronized shared state — look for missing locks
-- **RAII violations**: early return / exception paths that skip cleanup or leave state inconsistent
-- **Virtual call on destroyed object**: vtable pointer corrupted — destructor called before last use
+## Architecture
 
-### Fix Principles
-- Make the **minimal possible change** — do not refactor surrounding code
-- Prefer null checks / early returns / guards over restructuring logic
-- Do not change function signatures or public APIs
-- If the root cause is unclear from the dump alone, apply a defensive fix and note uncertainty in the PR description
-- If the fix touches shared or core code, flag it explicitly for reviewer attention
+```
+client/src/
+  pages/          # Dashboard, CrashDetail, Settings
+  components/     # Layout, PipelineView, StatusBadge
+  hooks/          # useApi, useSocket
 
-### PR Description Requirements
-- Always include: crash ID, exception code, faulting module, top 3 meaningful stack frames
-- State confidence level: **"Root cause confirmed"** vs **"Defensive fix — root cause unclear from dump"**
-- Describe what condition triggered the crash and what the fix prevents
+server/src/
+  routes/         # config, crash, git, pipeline (Express routers)
+  services/
+    claude.ts         # Spawns Claude CLI with embedded crash analysis prompt
+    crashReportServer.ts  # Fetches crash reports from external server (read-only)
+    dump.ts           # Parses CDB output files
+    git.ts            # Local git operations (checkout, diff, apply patch)
+    github.ts         # GitHub API — creates PRs
+    config.ts         # App config (model, repo path, server URL, etc.)
+  utils/
+    appPaths.ts       # getAppRoot() / getDataRoot() → resolves paths for both dev and packaged exe
+```
+
+## Key Behaviors
+- **Crash analysis prompt** is embedded in `server/src/services/claude.ts` — not in this file. Edit there to change Claude's analysis behavior.
+- **User data / config** lives in `%ProgramData%/CrashPilot/` (resolved via `getDataRoot()`), not next to the exe.
+- **Claude CLI** is spawned with `--dangerously-skip-permissions` and `--no-session-persistence`; `cwd` is set to the user's C++ source repo.
+- **Socket.IO** is used to stream live analysis logs to the frontend.
+
+## Dev Commands
+```
+npm run dev          # start both server (ts-node) and client (vite) concurrently
+npm run build        # build client then server
+npm run build:release  # package as standalone exe (see scripts/build-release.js)
+```

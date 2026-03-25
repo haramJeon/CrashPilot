@@ -221,9 +221,9 @@ Source repo is your current working directory.
 
 ### Reading the CDB file
 - NEVER read the entire CDB file.
-- Step 1: Grep for key sections first:
+- Grep for key sections first:
     grep -n "EXCEPTION_RECORD\\|STACK_TEXT\\|ChildEBP\\|RetAddr\\|ExceptionAddress" <cdb_file> | head -30
-- Step 2: Read only those lines with offset+limit (e.g. Read file offset=N limit=60).
+- Then read only the matched line ranges.
 
 ### Finding source files
 - Use Grep with a file-type filter — NEVER recursive grep without --include:
@@ -233,18 +233,40 @@ Source repo is your current working directory.
 
 ### Reading source files
 - NEVER read an entire source file.
-- Step 1: Grep to find the exact line number of the crashing function.
-- Step 2: Read only ±40 lines around that function (offset+limit).
+- Step 1: Grep to find the exact line number of the crashing function's definition (e.g. "^FooClass::Bar(").
+- Step 2: Grep to find the closing brace line (or estimate function end from indentation).
+- Step 3: Read from the function start to its closing brace — the entire function body, no more.
+- If the function is a one-liner or very short, include the surrounding caller context.
 - NEVER read the same file twice — extract everything needed in one read.
 
 ### General
 - Stop searching as soon as you have identified the crashing function and its source lines.
 - Do not explore unrelated files or directories.
 
+## Exception Code Cheatsheet:
+- 0xC0000005 (ACCESS_VIOLATION): read/write addr ~0x0–0xFF = null deref; large addr = corrupted pointer
+- 0xC00000FD (STACK_OVERFLOW): look for recursive call patterns in the stack
+- 0xC0000374 (heap corruption): crash site ≠ corruption site — find the earliest suspicious frame
+- 0x40000015 (FATAL_APP_EXIT): std::terminate — look for unhandled exception or pure virtual call
+
+## Common C++ Crash Patterns:
+- Null/dangling ptr: raw ptr after container clear, ptr to local var escaping scope
+- Use-after-free: shared_ptr cycles, callbacks holding raw refs to destroyed objects
+- Iterator invalidation: container insert/erase during iteration
+- Thread safety: non-deterministic crash → unsynchronized shared state, missing locks
+- RAII violation: early return/exception path skipping cleanup
+- Virtual call on destroyed object: vtable corrupted, destructor called before last use
+
+## Fix Principles:
+- Minimal change only — do not refactor surrounding code
+- Prefer null checks / early returns / guards over restructuring logic
+- Never change function signatures or public APIs
+- If root cause is unclear, apply a defensive fix
+
 ## Analysis Steps:
-1. Grep the CDB file for exception/stack keywords → find the faulting function name (first non-OS frame).
+1. Grep the CDB file for exception/stack keywords → find the faulting function name (first non-OS frame, skip OS/runtime internals).
 2. Grep the repo for that function name with --include="*.cpp" filter in the most specific subdir.
-3. Read only the crashing function body (offset+limit ±40 lines).
+3. Read the entire crashing function body — from its definition line to its closing brace.
 4. Produce the minimal fix — touch only the lines that cause the crash.
 5. Only include files you actually change; paths must be relative to the repo root.
 ${jsonFooter}`;

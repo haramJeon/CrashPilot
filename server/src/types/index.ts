@@ -149,6 +149,7 @@ export interface ClassificationResult {
   crashId: number;
   crashSubject: string;
   exceptionCode?: string;
+  osType?: 'windows' | 'macos';
   fingerprint: string;         // representative top frames
   currentIssueKey?: string;    // from crashReportOrganizer
   verdict: ClassificationVerdict;

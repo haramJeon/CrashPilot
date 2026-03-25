@@ -123,6 +123,7 @@ export interface ClassificationResult {
   crashId: number;
   crashSubject: string;
   exceptionCode?: string;
+  osType?: 'windows' | 'macos';
   fingerprint: string;
   currentIssueKey?: string;
   verdict: ClassificationVerdict;

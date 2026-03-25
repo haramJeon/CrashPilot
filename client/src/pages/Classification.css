@@ -395,6 +395,11 @@
   max-width: 400px;
 }
 
+.classification .result-os {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
 .classification .result-exception {
   font-size: 11px;
   color: var(--cls-text-muted);

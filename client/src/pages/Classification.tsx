@@ -69,6 +69,11 @@ function ResultRow({ result, jiraUrl, crashServerUrl }: { result: Classification
             </a>
           )}
           <span className="result-subject">{result.crashSubject}</span>
+          {result.osType && (
+            <span className="result-os">
+              {result.osType === 'windows' ? '🪟 Windows' : '🍎 macOS'}
+            </span>
+          )}
           {result.exceptionCode && (
             <code className="result-exception">{result.exceptionCode}</code>
           )}

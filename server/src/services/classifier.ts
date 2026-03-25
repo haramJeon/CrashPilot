@@ -31,11 +31,11 @@ function isSystemFrame(dllName: string): boolean {
 }
 
 /**
- * 스택 지문 추출: mainStackTraces에서 자체 코드 프레임 상위 5개
- * 없으면 stackTraces에서 추출
+ * 스택 지문 추출: stackTraces에서 자체 코드 프레임 상위 5개
+ * 없으면 mainStackTraces에서 추출
  */
 export function extractFingerprint(crash: CrashReport): string {
-  const frames = crash.mainStackTraces.length > 0 ? crash.mainStackTraces : crash.stackTraces;
+  const frames = crash.stackTraces.length > 0 ? crash.stackTraces : crash.mainStackTraces;
   const ownFrames = frames
     .filter((f) => !isSystemFrame(f.dllName))
     .slice(0, 5);
@@ -106,7 +106,7 @@ async function validateMapping(
   }
 
   // 전체 스택 프레임 (fingerprint는 상위 5개만이므로 전체도 함께 제공)
-  const allFrames = crash.mainStackTraces.length > 0 ? crash.mainStackTraces : crash.stackTraces;
+  const allFrames = crash.stackTraces.length > 0 ? crash.stackTraces : crash.mainStackTraces;
   const fullStack = allFrames.length > 0
     ? allFrames
         .slice(0, 30)
@@ -180,20 +180,31 @@ async function classifyUnmapped(
         .join('\n')
     : '(열린 이슈 없음)';
 
+  const allFrames = crash.stackTraces.length > 0 ? crash.stackTraces : crash.mainStackTraces;
+  const fullStack = allFrames.length > 0
+    ? allFrames
+        .slice(0, 30)
+        .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
+        .join('\n')
+    : '(스택 없음)';
+
   const prompt = `당신은 C++ 크래시 리포트를 기존 Jira 이슈에 분류하는 전문가입니다.
 
 ## 크래시 정보
 - Subject: ${crash.subject}
 - Exception Code: ${crash.exceptionCode ?? 'unknown'}
 - SW Version: ${crash.swVersion}
-- Stack Fingerprint (상위 프레임):
-  ${fingerprint}
+- Stack Fingerprint (핵심 프레임):
+  ${fingerprint || '(없음)'}
+- Full Stack (상위 30프레임):
+${fullStack}
 
 ## 기존 열린 Jira 이슈 목록
 ${issueListText}
 
 ## 판단 기준
-- 스택의 핵심 함수명/모듈이 기존 이슈 중 하나와 동일하거나 매우 유사 → assign (suggestedIssueKey 필수)
+- Full Stack(fingerprint 포함) 어디에든 기존 이슈 Summary/Description에 언급된 함수명·모듈명이 등장하면 assign
+- 크래시 발생 위치(함수·모듈)가 기존 이슈와 같거나 인접한 call stack 흐름이면 assign
 - 어느 이슈와도 관련 없는 새로운 유형의 크래시 → new_issue
 
 ## 출력 형식 (JSON만, 마크다운 없이)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot, Pencil, Search, Loader, Check, X } from 'lucide-react';
+import { ArrowLeft, Play, Square, ExternalLink, FileCode, Info, Bot, Pencil, Search, Loader, Check, X, AlertTriangle } from 'lucide-react';
 import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';

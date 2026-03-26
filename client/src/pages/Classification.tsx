@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react';
+import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search, Loader2 } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../hooks/useApi';
 import { useSocket } from '../hooks/useSocket';
 import type { ApiSoftware, ClassificationRun, ClassificationResult, ClassificationVerdict } from '../types';
@@ -11,11 +11,12 @@ import './Classification.css';
 // ─────────────────────────────────────────────────────────────────────────
 
 const VERDICT_META: Record<ClassificationVerdict, { label: string; color: string; icon: React.ReactNode }> = {
-  validated:     { label: '올바른 매핑',    color: 'validated',     icon: <CheckCircle size={14} /> },
-  misclassified: { label: '잘못된 매핑',    color: 'misclassified', icon: <AlertTriangle size={14} /> },
-  assign:        { label: '이슈 매핑 필요', color: 'assign',        icon: <Link2 size={14} /> },
-  new_issue:     { label: '신규 이슈 필요', color: 'new_issue',     icon: <Plus size={14} /> },
-  no_stack:      { label: '분석 불가 (스택 없음)', color: 'no_stack', icon: <AlertTriangle size={14} /> },
+  validated:      { label: '올바른 매핑',         color: 'validated',      icon: <CheckCircle size={14} /> },
+  misclassified:  { label: '잘못된 매핑',          color: 'misclassified',  icon: <AlertTriangle size={14} /> },
+  assign:         { label: '이슈 매핑 필요',       color: 'assign',         icon: <Link2 size={14} /> },
+  new_issue:      { label: '신규 이슈 필요',       color: 'new_issue',      icon: <Plus size={14} /> },
+  no_stack:       { label: '분석 불가 (스택 없음)', color: 'no_stack',       icon: <AlertTriangle size={14} /> },
+  needs_analysis: { label: '추가 분석 필요',       color: 'needs_analysis', icon: <Search size={14} /> },
 };
 
 function VerdictBadge({ verdict }: { verdict: ClassificationVerdict }) {
@@ -36,8 +37,79 @@ function ConfidenceDot({ confidence }: { confidence: 'high' | 'medium' | 'low' }
 // Result Row
 // ─────────────────────────────────────────────────────────────────────────
 
-function ResultRow({ result, jiraUrl, crashServerUrl }: { result: ClassificationResult; jiraUrl: string; crashServerUrl: string }) {
+interface AnalysisResult {
+  crashLocation: string;
+  bugType: string;
+  rootCause: string;
+  hints: string;
+}
+
+function ResultRow({
+  result,
+  jiraUrl,
+  crashServerUrl,
+  socketRef,
+}: {
+  result: ClassificationResult;
+  jiraUrl: string;
+  crashServerUrl: string;
+  socketRef: React.MutableRefObject<any>;
+}) {
   const [open, setOpen] = useState(false);
+  const [analysisState, setAnalysisState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [analysisLogs, setAnalysisLogs] = useState<string[]>([]);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const analysisLogsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const onLog = ({ crashId, message }: any) => {
+      if (crashId !== result.crashId) return;
+      setAnalysisLogs((prev) => [...prev.slice(-100), message]);
+    };
+    const onComplete = ({ crashId, ...data }: any) => {
+      if (crashId !== result.crashId) return;
+      setAnalysisResult(data as AnalysisResult);
+      setAnalysisState('done');
+    };
+    const onError = ({ crashId, message }: any) => {
+      if (crashId !== result.crashId) return;
+      setAnalysisLogs((prev) => [...prev, `오류: ${message}`]);
+      setAnalysisState('error');
+    };
+
+    socket.on('classification:analysis:log', onLog);
+    socket.on('classification:analysis:complete', onComplete);
+    socket.on('classification:analysis:error', onError);
+
+    return () => {
+      socket.off('classification:analysis:log', onLog);
+      socket.off('classification:analysis:complete', onComplete);
+      socket.off('classification:analysis:error', onError);
+    };
+  }, [socketRef, result.crashId]);
+
+  useEffect(() => {
+    if (analysisLogsRef.current) {
+      analysisLogsRef.current.scrollTop = analysisLogsRef.current.scrollHeight;
+    }
+  }, [analysisLogs]);
+
+  const runAnalysis = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAnalysisState('running');
+    setAnalysisLogs([]);
+    setAnalysisResult(null);
+    setOpen(true);
+    try {
+      await apiPost(`/classification/analyze-crash/${result.crashId}`, {});
+    } catch (err: any) {
+      setAnalysisState('error');
+      setAnalysisLogs([`시작 실패: ${err.message}`]);
+    }
+  };
 
   const issueHref = (key: string) =>
     jiraUrl ? `${jiraUrl.replace(/\/$/, '')}/browse/${key}` : '#';
@@ -79,6 +151,18 @@ function ResultRow({ result, jiraUrl, crashServerUrl }: { result: Classification
           )}
         </div>
         <div className="result-row-right">
+          {result.verdict === 'needs_analysis' && (
+            <button
+              className={`btn-analyze ${analysisState === 'running' ? 'running' : ''}`}
+              onClick={runAnalysis}
+              disabled={analysisState === 'running'}
+              title="추가 분석 실행"
+            >
+              {analysisState === 'running'
+                ? <><Loader2 size={12} className="spin" />분석 중...</>
+                : <><Search size={12} />추가 분석하기</>}
+            </button>
+          )}
           {result.currentIssueKey && (
             <a
               href={issueHref(result.currentIssueKey)}
@@ -126,6 +210,60 @@ function ResultRow({ result, jiraUrl, crashServerUrl }: { result: Classification
                 {result.verdict === 'misclassified' ? '올바른 이슈' : '매칭된 이슈'}
               </span>
               <span className="detail-value">{result.suggestedIssueSummary}</span>
+            </div>
+          )}
+
+          {/* 추가 분석 결과 */}
+          {(analysisState === 'running' || analysisState === 'done' || analysisState === 'error') && (
+            <div className="analysis-result-section">
+              <div className="analysis-result-header">
+                <Search size={13} />
+                추가 분석
+                {analysisState === 'running' && <Loader2 size={12} className="spin" />}
+                {analysisState === 'done' && <span className="analysis-done-badge">완료</span>}
+                {analysisState === 'error' && <span className="analysis-error-badge">오류</span>}
+              </div>
+
+              {analysisState === 'running' && (
+                <div className="analysis-log-box" ref={analysisLogsRef}>
+                  {analysisLogs.map((line, i) => <div key={i} className="log-line">{line}</div>)}
+                </div>
+              )}
+
+              {analysisState === 'done' && analysisResult && (
+                <div className="analysis-result-body">
+                  {analysisResult.crashLocation && (
+                    <div className="detail-section">
+                      <span className="detail-label">크래시 위치</span>
+                      <code className="detail-fingerprint">{analysisResult.crashLocation}</code>
+                    </div>
+                  )}
+                  {analysisResult.bugType && (
+                    <div className="detail-section">
+                      <span className="detail-label">버그 유형</span>
+                      <span className="detail-value analysis-bug-type">{analysisResult.bugType}</span>
+                    </div>
+                  )}
+                  {analysisResult.rootCause && (
+                    <div className="detail-section">
+                      <span className="detail-label">근본 원인</span>
+                      <span className="detail-value">{analysisResult.rootCause}</span>
+                    </div>
+                  )}
+                  {analysisResult.hints && (
+                    <div className="detail-section">
+                      <span className="detail-label">수정 힌트</span>
+                      <span className="detail-value analysis-hints">{analysisResult.hints}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {analysisState === 'error' && (
+                <div className="analysis-log-box" ref={analysisLogsRef}>
+                  {analysisLogs.map((line, i) => <div key={i} className="log-line">{line}</div>)}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -292,11 +430,12 @@ export default function Classification() {
     : displayResults;
 
   const counts = {
-    validated: displayResults.filter((r) => r.verdict === 'validated').length,
-    misclassified: displayResults.filter((r) => r.verdict === 'misclassified').length,
-    assign: displayResults.filter((r) => r.verdict === 'assign').length,
-    new_issue: displayResults.filter((r) => r.verdict === 'new_issue').length,
-    no_stack: displayResults.filter((r) => r.verdict === 'no_stack').length,
+    validated:      displayResults.filter((r) => r.verdict === 'validated').length,
+    misclassified:  displayResults.filter((r) => r.verdict === 'misclassified').length,
+    assign:         displayResults.filter((r) => r.verdict === 'assign').length,
+    new_issue:      displayResults.filter((r) => r.verdict === 'new_issue').length,
+    no_stack:       displayResults.filter((r) => r.verdict === 'no_stack').length,
+    needs_analysis: displayResults.filter((r) => r.verdict === 'needs_analysis').length,
   };
 
   return (
@@ -354,7 +493,7 @@ export default function Classification() {
               </button>
               <p className="strict-desc">
                 {strict
-                  ? 'OS·스택이 일치해야 validated 판정'
+                  ? '스택 논리적 일치 여부로 판정 (OS 무관) — 범용 스택은 추가 분석 필요 판정'
                   : 'call stack 흐름·모듈 등을 종합 고려 — 가능성 있으면 validated'}
               </p>
             </div>
@@ -469,7 +608,7 @@ export default function Classification() {
               ) : (
                 <div className="results-list">
                   {filtered.map((r) => (
-                    <ResultRow key={r.crashId} result={r} jiraUrl={jiraUrl} crashServerUrl={crashServerUrl} />
+                    <ResultRow key={r.crashId} result={r} jiraUrl={jiraUrl} crashServerUrl={crashServerUrl} socketRef={socketRef} />
                   ))}
                 </div>
               )}

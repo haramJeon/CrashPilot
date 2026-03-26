@@ -337,6 +337,38 @@ export default function Settings() {
             </>
           )}
         </div>
+
+        {/* Auto Update */}
+        <div className="settings-section">
+          <h3>자동 업데이트</h3>
+          <div className="field">
+            <label>GitHub Repository <span className="field-hint">(CrashPilot 배포 repo)</span></label>
+            <input
+              value={config.autoUpdate?.githubRepo ?? ''}
+              onChange={(e) => setConfig({
+                ...config,
+                autoUpdate: { ...(config.autoUpdate ?? {}), githubRepo: e.target.value },
+              })}
+              placeholder="org/crashPilot"
+            />
+            <p className="field-help">
+              설정하면 앱 시작 시 자동으로 업데이트를 확인합니다. 형식: <code>owner/repo</code>
+            </p>
+          </div>
+          <div className="field">
+            <label>GitHub Token <span className="field-hint">(비공개 repo인 경우)</span></label>
+            <input
+              type="password"
+              value={config.autoUpdate?.githubToken ?? ''}
+              onChange={(e) => setConfig({
+                ...config,
+                autoUpdate: { ...(config.autoUpdate ?? { githubRepo: '' }), githubToken: e.target.value },
+              })}
+              placeholder="ghp_..."
+            />
+            <p className="field-help">공개 repo라면 비워두세요.</p>
+          </div>
+        </div>
       </div>
     </div>
   );

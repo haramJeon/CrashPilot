@@ -84,6 +84,10 @@ export interface AppConfig {
     email: string;
     apiToken: string;
   };
+  autoUpdate?: {
+    githubRepo: string;
+    githubToken?: string;
+  };
 }
 
 export interface PipelineStep {
@@ -117,7 +121,9 @@ export type ClassificationVerdict =
   | 'validated'
   | 'misclassified'
   | 'assign'
-  | 'new_issue';
+  | 'new_issue'
+  | 'no_stack'
+  | 'needs_analysis';
 
 export interface ClassificationResult {
   crashId: number;

@@ -12,6 +12,7 @@ import { gitRouter } from './routes/git';
 import { crashRouter } from './routes/crash';
 import { pipelineRouter } from './routes/pipeline';
 import { classificationRouter } from './routes/classification';
+import { updateRouter } from './routes/update';
 
 dotenv.config();
 
@@ -56,6 +57,7 @@ app.use('/api/git', gitRouter);
 app.use('/api/crash', crashRouter(io));
 app.use('/api/pipeline', pipelineRouter(io));
 app.use('/api/classification', classificationRouter(io));
+app.use('/api/update', updateRouter(io));
 
 // SPA fallback
 app.get('*', (_req, res) => {

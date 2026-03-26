@@ -132,8 +132,10 @@ ${issueDescription ? `- Description: ${issueDescription}` : ''}
 
 ## 판단 기준
 ${strict
-  ? `- 스택의 핵심 함수명과 DLL명이 Jira 이슈의 내용(Summary/Description)과 관련이 있으면 validated
+  ? `- OS 타입 차이(Windows/macOS)는 판단 근거로 사용하지 않는다
+- 스택의 핵심 함수명과 DLL명이 Jira 이슈의 내용(Summary/Description)과 논리적으로 관련 있으면 validated
 - 전혀 다른 기능/모듈의 크래시라면 misclassified
+- 스택이 ntdll·kernel32 등 시스템 DLL만으로 구성되거나, 크래시 위치가 범용 런타임 함수(예: abort, terminate, RaiseException)뿐이어서 특정 이슈와 논리적으로 연결할 수 없으면 needs_analysis
 - 확신하기 어려우면 confidence를 low로`
   : `- SW 버전 차이는 판단 근거로 사용하지 않는다
 - 스택(Full Stack 포함) 어디에든 Jira 이슈 Summary/Description에 언급된 함수명·모듈명이 등장하면 validated
@@ -144,7 +146,7 @@ ${strict
 
 ## 출력 형식 (JSON만, 마크다운 없이)
 {
-  "verdict": "validated" 또는 "misclassified",
+  "verdict": ${strict ? '"validated" 또는 "misclassified" 또는 "needs_analysis"' : '"validated" 또는 "misclassified"'},
   "confidence": "high" 또는 "medium" 또는 "low",
   "reason": "판단 이유 (한국어, 2-3문장)",
   "suggestedIssueKey": "misclassified일 때만 다른 이슈 키 제안 (없으면 생략)"

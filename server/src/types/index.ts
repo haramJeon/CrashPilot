@@ -90,6 +90,10 @@ export interface AppConfig {
     email: string;
     apiToken: string;
   };
+  autoUpdate?: {
+    githubRepo: string;  // e.g. "org/crashPilot"
+    githubToken?: string; // personal access token (for private repos)
+  };
 }
 
 export interface PipelineStep {
@@ -139,11 +143,12 @@ export interface JiraIssue {
 
 /** Classification verdict per crash */
 export type ClassificationVerdict =
-  | 'validated'     // issueKey exists and stack matches the Jira issue
-  | 'misclassified' // issueKey exists but stack does NOT match the Jira issue
-  | 'assign'        // no issueKey, but matches an existing Jira issue
-  | 'new_issue'     // no issueKey, no matching issue found → needs new issue
-  | 'no_stack';     // stack trace absent → cannot classify
+  | 'validated'       // issueKey exists and stack matches the Jira issue
+  | 'misclassified'   // issueKey exists but stack does NOT match the Jira issue
+  | 'assign'          // no issueKey, but matches an existing Jira issue
+  | 'new_issue'       // no issueKey, no matching issue found → needs new issue
+  | 'no_stack'        // stack trace absent → cannot classify
+  | 'needs_analysis'; // stack is too generic/ambiguous → deeper analysis required
 
 export interface ClassificationResult {
   crashId: number;

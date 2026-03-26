@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Settings, Plane, Tags } from 'lucide-react';
+import UpdateNotification from './UpdateNotification';
 import './Layout.css';
 
 export default function Layout() {
@@ -29,6 +30,7 @@ export default function Layout() {
         </div>
       </aside>
       <main className="main-content">
+        <UpdateNotification />
         <Outlet />
       </main>
     </div>

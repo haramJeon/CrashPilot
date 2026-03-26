@@ -3,9 +3,10 @@ import fs from 'fs';
 import path from 'path';
 import { Server as SocketIOServer } from 'socket.io';
 import { loadConfig } from '../services/config';
-import { fetchAllNewReports, fetchSoftwares } from '../services/crashReportServer';
+import { fetchAllNewReports, fetchSoftwares, fetchReportDetail } from '../services/crashReportServer';
 import { classifyCrashes } from '../services/classifier';
 import { isJiraConfigured } from '../services/jira';
+import { runClaude } from '../services/claude';
 import { ClassificationRun, ClassificationResult } from '../types';
 import { getDataRoot } from '../utils/appPaths';
 
@@ -197,6 +198,95 @@ export function classificationRouter(io: SocketIOServer): Router {
       res.json({ ok: true });
     } else {
       res.status(404).json({ error: 'Run not found or already finished' });
+    }
+  });
+
+  // POST /api/classification/analyze-crash/:crashId
+  // 스택 기반 분석 전용 (코드 수정 없음)
+  router.post('/analyze-crash/:crashId', async (req, res) => {
+    const crashId = Number(req.params.crashId);
+    if (isNaN(crashId)) return res.status(400).json({ error: 'Invalid crashId' });
+
+    const config = loadConfig();
+    res.json({ ok: true });
+
+    const emit = (event: string, data: any) =>
+      io.emit(`classification:analysis:${event}`, { crashId, ...data });
+
+    try {
+      emit('log', { message: `크래시 #${crashId} 상세 정보 조회 중...` });
+
+      const detail = await fetchReportDetail(crashId);
+      const frames = detail.stackTraces.length > 0 ? detail.stackTraces : detail.mainStackTraces;
+
+      const fullStack = frames.length > 0
+        ? frames
+            .slice(0, 30)
+            .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
+            .join('\n')
+        : '(스택 없음)';
+
+      emit('log', { message: `스택 ${frames.length}프레임 로드 완료` });
+      emit('log', { message: 'Claude 분석 시작...' });
+
+      const prompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
+
+## 크래시 정보
+- Subject: ${detail.subject}
+- Exception Code: ${detail.exceptionCode ?? 'unknown'}
+- SW Version: ${detail.swVersion}
+- OS: ${detail.osType ?? 'unknown'}
+
+## Call Stack (상위 ${Math.min(frames.length, 30)}프레임):
+${fullStack}
+
+## 분석 요청
+1. 크래시가 발생한 핵심 함수/모듈을 식별하세요 (OS/런타임 프레임 제외)
+2. 예외 코드와 스택 패턴을 기반으로 가능한 근본 원인을 설명하세요
+3. 이 크래시의 버그 유형을 분류하세요 (null 참조, use-after-free, 스택 오버플로, race condition 등)
+4. 코드를 수정하지 말고, 수정 방향에 대한 힌트만 제공하세요
+
+## 예외 코드 참고
+- 0xC0000005 (ACCESS_VIOLATION): ~0x0–0xFF 범위 = null 역참조; 큰 주소 = 댕글링 포인터
+- 0xC00000FD (STACK_OVERFLOW): 스택에 재귀 패턴 탐색
+- 0xC0000374 (heap corruption): 크래시 위치 ≠ 손상 위치 — 가장 이른 의심 프레임 탐색
+- 0x40000015 (FATAL_APP_EXIT): std::terminate — 처리되지 않은 예외 또는 순수 가상 호출
+
+## 출력 형식 (JSON만, 마크다운 없이)
+{
+  "crashLocation": "크래시 발생 핵심 함수/모듈",
+  "bugType": "버그 유형 (한국어)",
+  "rootCause": "근본 원인 설명 (한국어, 3-5문장)",
+  "hints": "수정 방향 힌트 (한국어, 2-3문장, 코드 수정 없음)"
+}`;
+
+      const { promise } = runClaude(
+        prompt,
+        undefined,
+        [],
+        (line) => emit('log', { message: line }),
+        undefined,
+        config.claude.model,
+      );
+
+      const raw = await promise;
+
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      } catch {
+        parsed = { crashLocation: '파싱 실패', bugType: 'unknown', rootCause: raw.slice(0, 500), hints: '' };
+      }
+
+      emit('complete', {
+        crashLocation: parsed.crashLocation ?? '',
+        bugType: parsed.bugType ?? '',
+        rootCause: parsed.rootCause ?? '',
+        hints: parsed.hints ?? '',
+      });
+    } catch (e: any) {
+      emit('error', { message: e?.message ?? String(e) });
     }
   });
 

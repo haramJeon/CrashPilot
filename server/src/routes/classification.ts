@@ -99,6 +99,23 @@ export function classificationRouter(io: SocketIOServer): Router {
     res.json({ jiraConfigured: isJiraConfigured(config) });
   });
 
+  // GET /api/classification/preview
+  // query: softwareId, startDate, endDate
+  router.get('/preview', async (req, res) => {
+    const { softwareId, startDate, endDate } = req.query as Record<string, string>;
+    if (!softwareId || !startDate || !endDate) {
+      return res.status(400).json({ error: 'softwareId, startDate, endDate 필수' });
+    }
+    try {
+      const crashes = await fetchAllNewReports({ softwareId: Number(softwareId), startDate, endDate });
+      res.json(crashes.map(({ id, subject, swVersion, receivedAt, exceptionCode, osType, issueKey, softwareName }) => ({
+        id, subject, swVersion, receivedAt, exceptionCode, osType, issueKey, softwareName,
+      })));
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? String(e) });
+    }
+  });
+
   // POST /api/classification/run
   // body: { softwareId: number, startDate: string, endDate: string, strict?: boolean }
   router.post('/run', async (req, res) => {

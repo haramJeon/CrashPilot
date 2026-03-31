@@ -1,10 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search, Loader2 } from 'lucide-react';
+import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search, Loader2, List } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../hooks/useApi';
 import { useSocket } from '../hooks/useSocket';
 import type { ApiSoftware, ClassificationRun, ClassificationResult, ClassificationVerdict } from '../types';
 import './Classification.css';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────
+
+interface PreviewCrash {
+  id: number;
+  subject: string;
+  swVersion: string;
+  receivedAt: string;
+  exceptionCode?: string;
+  osType?: 'windows' | 'macos';
+  issueKey?: string;
+  softwareName?: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -286,6 +301,9 @@ export default function Classification() {
   const [jiraConfigured, setJiraConfigured] = useState(false);
 
   const [strict, setStrict] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewCrashes, setPreviewCrashes] = useState<PreviewCrash[] | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
@@ -376,6 +394,25 @@ export default function Classification() {
     apiGet<ClassificationRun[]>('/classification/history').then(setHistory).catch(() => {});
   };
 
+  const fetchPreview = async () => {
+    if (!softwareId || !startDate || !endDate) return;
+    setPreviewing(true);
+    setPreviewError(null);
+    setPreviewCrashes(null);
+    setResults(null);
+    setError(null);
+    try {
+      const crashes = await apiGet<PreviewCrash[]>(
+        `/classification/preview?softwareId=${softwareId}&startDate=${startDate}&endDate=${endDate}`
+      );
+      setPreviewCrashes(crashes);
+    } catch (e: any) {
+      setPreviewError(e.message);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const runClassification = async () => {
     if (!softwareId || !startDate || !endDate) return;
     setRunning(true);
@@ -464,7 +501,7 @@ export default function Classification() {
             <h3>분류 실행</h3>
             <div className="field">
               <label>소프트웨어</label>
-              <select value={softwareId} onChange={(e) => setSoftwareId(e.target.value)} disabled={running}>
+              <select value={softwareId} onChange={(e) => { setSoftwareId(e.target.value); setPreviewCrashes(null); }} disabled={running}>
                 <option value="">선택...</option>
                 {softwares.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -473,11 +510,11 @@ export default function Classification() {
             </div>
             <div className="field">
               <label>시작 날짜</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} disabled={running} />
+              <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPreviewCrashes(null); }} disabled={running} />
             </div>
             <div className="field">
               <label>종료 날짜</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} disabled={running} />
+              <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPreviewCrashes(null); }} disabled={running} />
             </div>
 
             <div className="field">
@@ -499,14 +536,25 @@ export default function Classification() {
             </div>
 
             {!running ? (
-              <button
-                className="btn btn-primary btn-full"
-                onClick={runClassification}
-                disabled={!softwareId || !startDate || !endDate}
-              >
-                <Play size={16} />
-                분류 실행
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  className="btn btn-secondary btn-full"
+                  onClick={fetchPreview}
+                  disabled={!softwareId || !startDate || !endDate || previewing}
+                >
+                  {previewing ? <Loader2 size={16} className="spin" /> : <List size={16} />}
+                  {previewing ? '조회 중...' : '크래시 목록 조회'}
+                </button>
+                <button
+                  className="btn btn-primary btn-full"
+                  onClick={runClassification}
+                  disabled={!softwareId || !startDate || !endDate || !previewCrashes || previewCrashes.length === 0}
+                  title={!previewCrashes ? '먼저 크래시 목록을 조회하세요' : previewCrashes.length === 0 ? '조회된 크래시가 없습니다' : undefined}
+                >
+                  <Play size={16} />
+                  분류 실행 {previewCrashes && previewCrashes.length > 0 ? `(${previewCrashes.length}건)` : ''}
+                </button>
+              </div>
             ) : (
               <button className="btn btn-danger btn-full" onClick={cancelClassification}>
                 <Square size={16} />
@@ -615,9 +663,76 @@ export default function Classification() {
             </div>
           )}
 
-          {results === null && !running && (
+          {/* 미리보기 오류 */}
+          {previewError && !running && (
+            <div className="error-banner">
+              <AlertTriangle size={16} />
+              {previewError}
+            </div>
+          )}
+
+          {/* 크래시 목록 미리보기 */}
+          {previewCrashes !== null && results === null && !running && (
+            <div className="panel results-panel">
+              <div className="results-header">
+                <h3>
+                  <List size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                  크래시 목록 ({previewCrashes.length}건)
+                </h3>
+                {previewCrashes.length > 0 && (
+                  <span className="preview-hint">목록 확인 후 좌측 "분류 실행" 버튼을 누르세요.</span>
+                )}
+              </div>
+              {previewCrashes.length === 0 ? (
+                <p className="empty-text">해당 기간에 크래시가 없습니다.</p>
+              ) : (
+                <div className="results-list">
+                  {previewCrashes.map((c) => (
+                    <div key={c.id} className="preview-crash-row">
+                      <Link to={`/crash/${c.id}`} className="result-crash-link">
+                        #{c.id}
+                      </Link>
+                      {crashServerUrl && (
+                        <a
+                          href={`${crashServerUrl}/reports/${c.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="detail-ext-link"
+                          title="View in CrashOrganizer"
+                        >
+                          <ExternalLink size={12} />
+                          CrashOrganizer
+                        </a>
+                      )}
+                      {c.osType && (
+                        <span className="result-os">
+                          {c.osType === 'windows' ? '🪟' : '🍎'}
+                        </span>
+                      )}
+                      <span className="result-subject">{c.subject}</span>
+                      {c.exceptionCode && <code className="result-exception">{c.exceptionCode}</code>}
+                      {c.issueKey && (
+                        <a
+                          href={jiraUrl ? `${jiraUrl.replace(/\/$/, '')}/browse/${c.issueKey}` : '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="issue-key-link"
+                        >
+                          {c.issueKey}
+                          <ExternalLink size={11} />
+                        </a>
+                      )}
+                      <span className="preview-version">{c.swVersion}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {results === null && !running && previewCrashes === null && (
             <div className="panel empty-panel">
-              <p>좌측에서 소프트웨어와 날짜 범위를 선택하고 분류 실행을 눌러주세요.</p>
+              <p>좌측에서 소프트웨어와 날짜 범위를 선택하고 크래시 목록을 조회하세요.</p>
             </div>
           )}
         </div>

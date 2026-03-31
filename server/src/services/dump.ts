@@ -12,11 +12,11 @@ import { getCurrentPlatform } from './config';
  *
  * Windows:
  *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/Windows/Build/{version}_Release.zip
- *   Extracted to: {releaseBuildBaseDir}/Windows/{appFolder}/{version}_Release/
+ *   Extracted to: {releaseBuildBaseDir}/{appFolder}/Windows/{version}_Release/
  *
  * macOS:
- *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/macOS/Build/dump_syms.zip
- *   Extracted to: {releaseBuildBaseDir}/macOS/{appFolder}/{major.minor.patch}/
+ *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/macOS/Build/{version}-mac-release-sym.zip
+ *   Extracted to: {releaseBuildBaseDir}/{appFolder}/macOS/{major.minor.patch}/
  *
  * Returns the local extract directory path.
  */
@@ -43,7 +43,7 @@ export async function downloadPdbFiles(
 
   // OS-specific paths (same networkBase, same softwarePath, version differs only in OS subfolder):
   // Windows: {networkBase}/{softwarePath}/{M.m.p}/Windows/Build/{swVersion}_Release.zip
-  // macOS:   {networkBase}/{softwarePath}/{M.m.p}/MacOS/{swVersion}-mac-release-sym.zip
+  // macOS:   {networkBase}/{softwarePath}/{M.m.p}/macOS/Build/{swVersion}-mac-release-sym.zip
   const osFolderName = osType === 'macos' ? 'macOS' : 'Windows';
   const extractDirName = osType === 'macos' ? majorMinorPatch : `${swVersion}_Release`;
   const zipName = osType === 'macos'
@@ -52,7 +52,7 @@ export async function downloadPdbFiles(
   const zipNetworkPath = osType === 'macos'
     ? path.join(networkBase, softwarePath, majorMinorPatch, 'macOS', 'Build', zipName)
     : path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', zipName);
-  const extractDir = path.join(localBaseDir, osFolderName, appFolder, extractDirName);
+  const extractDir = path.join(localBaseDir, appFolder, osFolderName, extractDirName);
 
   const alreadyExtracted = fs.existsSync(extractDir) &&
     fs.readdirSync(extractDir).some(f => !fs.statSync(path.join(extractDir, f)).isDirectory());
@@ -60,7 +60,7 @@ export async function downloadPdbFiles(
   if (alreadyExtracted) {
     onLog?.(`Already extracted: ${extractDir}`);
   } else {
-    const localAppDir = path.join(localBaseDir, osFolderName, appFolder);
+    const localAppDir = path.join(localBaseDir, appFolder, osFolderName);
     const localZipPath = path.join(localAppDir, zipName);
     fs.mkdirSync(localAppDir, { recursive: true });
     onLog?.(`> Copying zip from network...`);

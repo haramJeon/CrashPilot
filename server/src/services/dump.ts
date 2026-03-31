@@ -44,13 +44,13 @@ export async function downloadPdbFiles(
   // OS-specific paths (same networkBase, same softwarePath, version differs only in OS subfolder):
   // Windows: {networkBase}/{softwarePath}/{M.m.p}/Windows/Build/{swVersion}_Release.zip
   // macOS:   {networkBase}/{softwarePath}/{M.m.p}/MacOS/{swVersion}-mac-release-sym.zip
-  const osFolderName = osType === 'macos' ? 'MacOS' : 'Windows';
+  const osFolderName = osType === 'macos' ? 'macOS' : 'Windows';
   const extractDirName = osType === 'macos' ? majorMinorPatch : `${swVersion}_Release`;
   const zipName = osType === 'macos'
     ? `${swVersion}-mac-release-sym.zip`
     : `${swVersion}_Release.zip`;
   const zipNetworkPath = osType === 'macos'
-    ? path.join(networkBase, softwarePath, majorMinorPatch, 'MacOS', zipName)
+    ? path.join(networkBase, softwarePath, majorMinorPatch, 'macOS', 'Build', zipName)
     : path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', zipName);
   const extractDir = path.join(localBaseDir, osFolderName, appFolder, extractDirName);
 

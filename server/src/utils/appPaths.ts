@@ -26,11 +26,8 @@ export function getAppRoot(): string {
  * - dev:            project root (same as getAppRoot — no change to dev workflow)
  */
 export function getDataRoot(): string {
-  if (isPkg) {
-    if (os.platform() === 'win32') {
-      return path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'CrashPilot');
-    }
-    return path.join('/Library/Application Support', 'CrashPilot');
+  if (os.platform() === 'win32') {
+    return path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'CrashPilot');
   }
-  return path.join(__dirname, '../../..');
+  return path.join('/Library/Application Support', 'CrashPilot');
 }

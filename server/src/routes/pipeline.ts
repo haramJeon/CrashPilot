@@ -332,7 +332,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       // Step 1: Download PDB files
       steps[1].status = 'running';
       emitSteps(crashId, steps);
-      const pdbDir = await downloadPdbFiles(detail.softwareId, detail.swVersion, (line) => log(1, line));
+      const pdbDir = await downloadPdbFiles(detail.softwareId, detail.swVersion, detail.osType ?? 'windows', (line) => log(1, line));
       steps[1].status = 'done';
       steps[1].message = pdbDir;
       emitSteps(crashId, steps);

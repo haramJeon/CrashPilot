@@ -8,14 +8,22 @@ import { loadConfig } from './config';
 import { getCurrentPlatform } from './config';
 
 /**
- * Ensures the release build zip is extracted locally (PDB files).
- * Network zip: {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/Windows/Build/{version}_Release.zip
- * Extracted to: {releaseBuildBaseDir}/{appFolder}/{version}_Release/
+ * Ensures the release build zip is extracted locally (PDB / symbol files).
+ *
+ * Windows:
+ *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/Windows/Build/{version}_Release.zip
+ *   Extracted to: {releaseBuildBaseDir}/Windows/{appFolder}/{version}_Release/
+ *
+ * macOS:
+ *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/macOS/Build/dump_syms.zip
+ *   Extracted to: {releaseBuildBaseDir}/macOS/{appFolder}/{major.minor.patch}/
+ *
  * Returns the local extract directory path.
  */
 export async function downloadPdbFiles(
   softwareId: number,
   swVersion: string,
+  osType: 'windows' | 'macos' = 'windows',
   onLog?: (line: string) => void
 ): Promise<string> {
   const config = loadConfig();
@@ -31,8 +39,20 @@ export async function downloadPdbFiles(
   // Use last segment of softwareBuildPaths as app folder name
   // e.g. 'Medit Add-in\\Medit Orthodontic Suite' → 'Medit Orthodontic Suite'
   const appFolder = softwarePath.split(/[/\\]/).filter(Boolean).pop() || String(softwareId);
-  const versionReleaseName = `${swVersion}_Release`;
-  const extractDir = path.join(localBaseDir, appFolder, versionReleaseName);
+  const majorMinorPatch = swVersion.split('.').slice(0, 3).join('.');
+
+  // OS-specific paths (same networkBase, same softwarePath, version differs only in OS subfolder):
+  // Windows: {networkBase}/{softwarePath}/{M.m.p}/Windows/Build/{swVersion}_Release.zip
+  // macOS:   {networkBase}/{softwarePath}/{M.m.p}/MacOS/{swVersion}-mac-release-sym.zip
+  const osFolderName = osType === 'macos' ? 'MacOS' : 'Windows';
+  const extractDirName = osType === 'macos' ? majorMinorPatch : `${swVersion}_Release`;
+  const zipName = osType === 'macos'
+    ? `${swVersion}-mac-release-sym.zip`
+    : `${swVersion}_Release.zip`;
+  const zipNetworkPath = osType === 'macos'
+    ? path.join(networkBase, softwarePath, majorMinorPatch, 'MacOS', zipName)
+    : path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', zipName);
+  const extractDir = path.join(localBaseDir, osFolderName, appFolder, extractDirName);
 
   const alreadyExtracted = fs.existsSync(extractDir) &&
     fs.readdirSync(extractDir).some(f => !fs.statSync(path.join(extractDir, f)).isDirectory());
@@ -40,27 +60,22 @@ export async function downloadPdbFiles(
   if (alreadyExtracted) {
     onLog?.(`Already extracted: ${extractDir}`);
   } else {
-    const majorMinorPatch = swVersion.split('.').slice(0, 3).join('.');
-    const zipNetworkPath = path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', `${versionReleaseName}.zip`);
-
-    // Step 1: copy zip from network to local
-    const localZipPath = path.join(localBaseDir, appFolder, `${versionReleaseName}.zip`);
-    fs.mkdirSync(path.join(localBaseDir, appFolder), { recursive: true });
+    const localAppDir = path.join(localBaseDir, osFolderName, appFolder);
+    const localZipPath = path.join(localAppDir, zipName);
+    fs.mkdirSync(localAppDir, { recursive: true });
     onLog?.(`> Copying zip from network...`);
     onLog?.(`  ${zipNetworkPath}`);
     onLog?.(`  → ${localZipPath}`);
     await copyFileAsync(zipNetworkPath, localZipPath, onLog);
     onLog?.(`  Copy done.`);
 
-    // Step 2: extract locally
     onLog?.(`> Extracting...`);
     onLog?.(`  ${localZipPath} → ${extractDir}`);
     fs.mkdirSync(extractDir, { recursive: true });
     await extractZip(localZipPath, extractDir, onLog);
 
-    // Step 3: delete local zip
     fs.unlinkSync(localZipPath);
-    onLog?.(`  Done — PDB files available at ${extractDir}`);
+    onLog?.(`  Done — ${osFolderName} symbols available at ${extractDir}`);
   }
 
   return extractDir;

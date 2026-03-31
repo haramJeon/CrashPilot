@@ -88,6 +88,7 @@ function parseClaudeJson(raw: string): any {
 async function validateMapping(
   crash: CrashReport,
   fingerprint: string,
+  openIssues: Array<{ key: string; summary: string; description?: string }>,
   config: AppConfig,
   onLog?: (line: string) => void,
   shouldAbort?: () => boolean,
@@ -113,6 +114,14 @@ async function validateMapping(
         .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
         .join('\n')
     : '(스택 없음)';
+
+  // 현재 이슈를 제외한 열린 이슈 목록 (misclassified 시 대안 추천용)
+  const otherIssues = openIssues.filter((i) => i.key !== issueKey);
+  const issueListText = otherIssues.length > 0
+    ? otherIssues
+        .map((i) => `- ${i.key}: ${i.summary}${i.description ? ` | ${i.description.slice(0, 100)}` : ''}`)
+        .join('\n')
+    : '(없음)';
 
   const prompt = `당신은 C++ 크래시 리포트와 Jira 이슈의 매핑이 올바른지 검증하는 전문가입니다.
 
@@ -144,12 +153,16 @@ ${strict
 - 스택에 공통 함수/모듈이 전혀 없고 완전히 다른 기능 영역임이 명확할 때만 misclassified`
 }
 
+## 대안 이슈 목록 (misclassified 판정 시 아래 목록에서 가장 적합한 이슈를 추천)
+${issueListText}
+
 ## 출력 형식 (JSON만, 마크다운 없이)
 {
   "verdict": ${strict ? '"validated" 또는 "misclassified" 또는 "needs_analysis"' : '"validated" 또는 "misclassified"'},
   "confidence": "high" 또는 "medium" 또는 "low",
   "reason": "판단 이유 (한국어, 2-3문장)",
-  "suggestedIssueKey": "misclassified일 때만 다른 이슈 키 제안 (없으면 생략)"
+  "suggestedIssueKey": "misclassified일 때만 — 대안 이슈 목록 중 가장 적합한 이슈 키 (없으면 생략)",
+  "suggestedIssueSummary": "suggestedIssueKey가 있을 때 해당 이슈 요약"
 }`;
 
   try {
@@ -314,7 +327,7 @@ export async function classifyCrashes(
       if (!sprintId && projectKeys.length > 0) {
         onLog?.(`[classifier] 프로젝트 키 자동 감지: ${projectKeys.join(', ')}`);
       }
-      openIssues = await fetchOpenIssues(config, projectKeys, 100, sprintId);
+      openIssues = await fetchOpenIssues(config, projectKeys, sprintId);
       onLog?.(`[classifier] 열린 이슈 ${openIssues.length}개 로드 완료`);
     } catch (e) {
       onLog?.(`[classifier] Jira 이슈 목록 조회 실패: ${e}`);
@@ -359,7 +372,7 @@ export async function classifyCrashes(
       // issueKey 있음 → 매핑 검증
       if (isJiraConfigured(config)) {
         onLog?.(`[classifier] → issueKey ${validIssueKey} 검증 중...`);
-        verdict = await validateMapping({ ...crash, issueKey: validIssueKey }, fingerprint, config, onLog, shouldAbort, strict);
+        verdict = await validateMapping({ ...crash, issueKey: validIssueKey }, fingerprint, openIssues, config, onLog, shouldAbort, strict);
       } else {
         verdict = { verdict: 'validated', confidence: 'low', reason: 'Jira 미설정으로 검증 생략 (issueKey 있음)' };
       }

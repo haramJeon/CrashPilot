@@ -90,6 +90,7 @@ export interface AppConfig {
     email: string;
     apiToken: string;
   };
+  jiraSprintIds?: Record<string, number>; // softwareId (as string) → Jira sprint ID
   autoUpdate?: {
     githubRepo: string;  // e.g. "org/crashPilot"
     githubToken?: string; // personal access token (for private repos)

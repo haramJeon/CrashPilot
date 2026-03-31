@@ -127,15 +127,16 @@ export function classificationRouter(io: SocketIOServer): Router {
     const runId = `${softwareId}_${startDate}_${endDate}_${Date.now()}`;
     abortFlags.set(runId, false);
 
-    // 소프트웨어 이름 및 스프린트 ID 조회
+    // 소프트웨어 이름 조회 및 config에서 sprintId 읽기
     let softwareName: string | undefined;
     let sprintId: number | null | undefined;
     try {
       const softwares = await fetchSoftwares();
       const sw = softwares.find((s) => s.id === Number(softwareId));
       softwareName = sw?.name;
-      sprintId = sw?.jira_sprint_id;
     } catch { /* ignore */ }
+    const configForSprint = loadConfig();
+    sprintId = configForSprint.jiraSprintIds?.[String(softwareId)] ?? null;
 
     const run: ClassificationRun = {
       id: runId,

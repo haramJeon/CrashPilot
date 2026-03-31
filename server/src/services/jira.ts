@@ -60,24 +60,37 @@ export async function fetchJiraIssue(config: AppConfig, issueKey: string): Promi
   };
 }
 
-/** JQL로 이슈 목록 조회 (read-only) */
+/** JQL로 이슈 목록 조회 — 페이지네이션으로 전체 결과 반환 (read-only) */
 export async function searchJiraIssues(
   config: AppConfig,
   jql: string,
-  maxResults = 50,
 ): Promise<JiraIssue[]> {
-  const data = await jiraFetch<any>(config, '/rest/api/3/search/jql', {
-    jql,
-    maxResults: String(maxResults),
-    fields: 'summary,status,issuetype,description',
-  });
-  return (data.issues ?? []).map((issue: any) => ({
-    key: issue.key,
-    summary: issue.fields.summary ?? '',
-    status: issue.fields.status?.name ?? '',
-    issueType: issue.fields.issuetype?.name ?? '',
-    description: extractAdfText(issue.fields.description).slice(0, 300),
-  }));
+  const PAGE_SIZE = 100;
+  const all: JiraIssue[] = [];
+  let startAt = 0;
+
+  while (true) {
+    const data = await jiraFetch<any>(config, '/rest/api/3/search/jql', {
+      jql,
+      maxResults: String(PAGE_SIZE),
+      startAt: String(startAt),
+      fields: 'summary,status,issuetype,description',
+    });
+    const issues: any[] = data.issues ?? [];
+    all.push(...issues.map((issue: any) => ({
+      key: issue.key,
+      summary: issue.fields.summary ?? '',
+      status: issue.fields.status?.name ?? '',
+      issueType: issue.fields.issuetype?.name ?? '',
+      description: extractAdfText(issue.fields.description).slice(0, 300),
+    })));
+
+    const total: number = data.total ?? 0;
+    startAt += issues.length;
+    if (startAt >= total || issues.length === 0) break;
+  }
+
+  return all;
 }
 
 /**
@@ -89,7 +102,6 @@ export async function searchJiraIssues(
 export async function fetchOpenIssues(
   config: AppConfig,
   projectKeys: string[],
-  maxResults = 100,
   sprintId?: number | null,
 ): Promise<JiraIssue[]> {
   const conditions: string[] = [];
@@ -103,7 +115,7 @@ export async function fetchOpenIssues(
 
   conditions.push('statusCategory != Done');
   const jql = conditions.join(' AND ') + ' ORDER BY updated DESC';
-  return searchJiraIssues(config, jql, maxResults);
+  return searchJiraIssues(config, jql);
 }
 
 export { isJiraConfigured };

@@ -198,6 +198,36 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Jira Sprint IDs */}
+        <div className="settings-section">
+          <h3>Jira Sprint IDs</h3>
+          <p className="field-help" style={{ marginBottom: 14 }}>
+            소프트웨어별 Jira 스프린트 ID를 입력하면 분류 실행 시 해당 스프린트의 이슈만 조회합니다.<br />
+            비워두면 프로젝트 전체 미완료 이슈를 조회합니다.
+          </p>
+          {softwares.length === 0 && (
+            <p className="field-help">No softwares loaded (check Crash Report Server URL).</p>
+          )}
+          {softwares.map((sw) => (
+            <div className="field tag-folder-row" key={sw.id}>
+              <label>{sw.name} <span className="field-hint">ID: {sw.id}</span></label>
+              <input
+                type="text"
+                style={{ maxWidth: 140 }}
+                value={config.jiraSprintIds?.[String(sw.id)] ?? ''}
+                onChange={(e) => {
+                  const updated = { ...(config.jiraSprintIds ?? {}) };
+                  const val = e.target.value.trim();
+                  if (val) updated[String(sw.id)] = Number(val);
+                  else delete updated[String(sw.id)];
+                  setConfig({ ...config, jiraSprintIds: updated });
+                }}
+                placeholder="Sprint ID"
+              />
+            </div>
+          ))}
+        </div>
+
         {/* Software Tag Folders */}
         <div className="settings-section">
           <h3>Software Tag Folders</h3>

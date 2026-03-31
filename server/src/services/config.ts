@@ -61,6 +61,26 @@ const DEFAULT_CONFIG: AppConfig = {
     email: '',
     apiToken: '',
   },
+  jiraSprintIds: {
+    "1": 1734,
+    "2": 1697,
+    "3": 5937,
+    "4": 5937,
+    "5": 5938,
+    "6": 2213,
+    "7": 5938,
+    "8": 5939,
+    "9": 5937,
+    "10": 1697,
+    "11": 1697,
+    "12": 5940,
+    "13": 5937,
+    "14": 5937,
+    "15": 5937,
+    "16": 2609,
+    "17": 3299,
+    "18": 5937,
+  },
   git: {
     repoUrl: 'https://github.com/medit-desktop-app/applications.git',
     repoBaseDir: '',
@@ -123,6 +143,7 @@ export function loadConfig(): AppConfig {
           softwareTagFolders: { ...DEFAULT_CONFIG.git.softwareTagFolders, ...decrypted.git?.softwareTagFolders },
         },
         jira: { ...DEFAULT_CONFIG.jira, ...decrypted.jira },
+        jiraSprintIds: { ...DEFAULT_CONFIG.jiraSprintIds, ...decrypted.jiraSprintIds },
       };
       return applyDirDefaults(merged);
     }

@@ -5,7 +5,7 @@ import https from 'https';
 import http from 'http';
 import yauzl from 'yauzl';
 import { loadConfig } from './config';
-import { getCurrentPlatform } from './config';
+import { getAppRoot } from '../utils/appPaths';
 
 /**
  * Ensures the release build zip is extracted locally (PDB / symbol files).
@@ -382,58 +382,72 @@ async function analyzeDumpWindows(
   });
 }
 
-// ── macOS: lldb analysis ──
-function analyzeDumpMacos(dumpPath: string): string {
-  const config = loadConfig();
-  const { lldbPath, dsymPath } = config.debugger.macos;
+// ── macOS: minidump_stackwalk analysis ──
+async function analyzeDumpMacos(
+  dumpPath: string,
+  symsDir: string,
+  onLog?: (line: string) => void
+): Promise<string> {
+  const toolPath = path.join(getAppRoot(), 'tools', 'mac', 'minidump_stackwalk');
 
-  if (!fs.existsSync(lldbPath)) {
-    throw new Error(`lldb not found at: ${lldbPath}. Install Xcode Command Line Tools.`);
+  if (!fs.existsSync(toolPath)) {
+    throw new Error(`minidump_stackwalk not found at: ${toolPath}`);
   }
 
-  // lldb batch commands for crash dump analysis
-  const lldbCommands = [
-    dsymPath ? `settings set target.debug-file-search-paths "${dsymPath}"` : '',
-    'bt all',
-    'thread info',
-    'register read',
-    'quit',
-  ].filter(Boolean).join('\n');
+  const dmpBase = path.basename(dumpPath, '.dmp');
+  const txtPath = path.join(path.dirname(dumpPath), `${dmpBase}_minidump.txt`);
 
-  const cmdFile = path.join(path.dirname(dumpPath), `lldb_cmd_${Date.now()}.txt`);
-  fs.writeFileSync(cmdFile, lldbCommands, 'utf-8');
+  return new Promise((resolve, reject) => {
+    onLog?.(`> Running minidump_stackwalk: "${toolPath}"`);
+    onLog?.(`  dump: "${dumpPath}"`);
+    onLog?.(`  symbols: "${symsDir}"`);
 
-  try {
-    // Try lldb core dump analysis
-    const result = execSync(
-      `"${lldbPath}" -c "${dumpPath}" -s "${cmdFile}"`,
-      { encoding: 'utf-8', timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
-    );
-    return result;
-  } catch {
-    // Fallback: try reading as Apple crash report text format (.crash / .ips)
-    try {
-      const content = fs.readFileSync(dumpPath, 'utf-8');
-      if (content.includes('Thread') && (content.includes('Crashed') || content.includes('Exception'))) {
-        return content; // It's a text-based Apple crash report
+    const proc = spawn(toolPath, ['-s', dumpPath, symsDir]);
+
+    const outputLines: string[] = [];
+
+    const handleChunk = (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trimEnd();
+        if (trimmed) {
+          outputLines.push(trimmed);
+          onLog?.(trimmed);
+        }
       }
-    } catch { /* binary file, ignore */ }
+    };
 
-    throw new Error(`Failed to analyze dump with lldb. Ensure the file is a valid core dump or crash report.`);
-  } finally {
-    fs.unlinkSync(cmdFile);
-  }
+    proc.stdout.on('data', handleChunk);
+    proc.stderr.on('data', handleChunk);
+
+    proc.on('close', () => {
+      const output = outputLines.join('\n');
+      try {
+        fs.writeFileSync(txtPath, output, 'utf-8');
+        onLog?.(`  Saved minidump_stackwalk output → ${txtPath}`);
+      } catch { /* non-fatal */ }
+      resolve(output);
+    });
+
+    proc.on('error', reject);
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error('minidump_stackwalk analysis timed out after 5 minutes'));
+    }, 300000);
+    proc.on('close', () => clearTimeout(timer));
+  });
 }
 
 export function analyzeDump(
   dumpPath: string,
-  pdbDir: string,
+  symsDir: string,
+  osType: 'windows' | 'macos',
   onLog?: (line: string) => void
 ): Promise<string> {
-  const platform = getCurrentPlatform();
-  return platform === 'macos'
-    ? Promise.resolve(analyzeDumpMacos(dumpPath))
-    : analyzeDumpWindows(dumpPath, pdbDir, onLog);
+  return osType === 'macos'
+    ? analyzeDumpMacos(dumpPath, symsDir, onLog)
+    : analyzeDumpWindows(dumpPath, symsDir, onLog);
 }
 
 // ── Windows CDB output parser ──
@@ -471,57 +485,51 @@ function extractCallStackWindows(output: string) {
   return { callStack: callStackLines.join('\n'), exceptionType, exceptionMessage: exceptionMessage.trim(), faultingModule };
 }
 
-// ── macOS lldb / Apple crash report parser ──
+// ── macOS minidump_stackwalk output parser ──
+// Example output:
+//   Crash reason:  EXC_BAD_ACCESS / KERN_INVALID_ADDRESS
+//   Crash address: 0x0
+//   Thread 0 (crashed)
+//    0  MarcApp!SomeClass::method() [file.cpp : 42 + 0x3]
+//    1  MarcApp!Caller::call()
+//   Thread 1
+//    0  libsystem_kernel.dylib!mach_msg_trap
 function extractCallStackMacos(output: string) {
   const lines = output.split('\n');
   let exceptionType = 'Unknown';
   let exceptionMessage = '';
   let faultingModule = 'Unknown';
   const callStackLines: string[] = [];
-  let inThread = false;
-  let foundCrashedThread = false;
+  let inCrashedThread = false;
 
   for (const line of lines) {
-    // Apple crash report format
-    if (line.includes('Exception Type:')) {
-      exceptionType = line.split(':').slice(1).join(':').trim();
-    }
-    if (line.includes('Exception Codes:') || line.includes('Exception Subtype:')) {
-      exceptionMessage += line.trim() + '\n';
-    }
-    if (line.includes('Triggered by Thread:') || line.includes('Crashed Thread:')) {
-      exceptionMessage += line.trim() + '\n';
-    }
-
-    // lldb backtrace format
-    if (line.includes('stop reason =')) {
-      exceptionType = line.split('stop reason =')[1]?.trim() || exceptionType;
-    }
-
-    // Find crashed thread's call stack
-    if (line.match(/^Thread \d+.*Crashed/i) || line.includes('* thread')) {
-      foundCrashedThread = true;
-      inThread = true;
+    // "Crash reason:  EXC_BAD_ACCESS / KERN_INVALID_ADDRESS"
+    if (line.startsWith('Crash reason:')) {
+      exceptionType = line.replace('Crash reason:', '').trim();
       continue;
     }
-    if (foundCrashedThread && inThread) {
-      if (line.match(/^Thread \d+/) || line.trim() === '' || line.includes('Binary Images')) {
-        inThread = false;
-      } else {
-        callStackLines.push(line.trim());
-        // Extract module from first frame
-        if (faultingModule === 'Unknown') {
-          const moduleMatch = line.match(/^\d+\s+(\S+)/);
-          if (moduleMatch) faultingModule = moduleMatch[1];
-        }
-      }
+    // "Crash address: 0x..."
+    if (line.startsWith('Crash address:')) {
+      exceptionMessage = line.trim();
+      continue;
     }
-
-    // lldb frame format: frame #0: 0x... module`function
-    if (line.includes('frame #')) {
-      callStackLines.push(line.trim());
+    // "Thread 0 (crashed)" → start collecting frames
+    if (/^Thread \d+ \(crashed\)/.test(line)) {
+      inCrashedThread = true;
+      continue;
+    }
+    // Next "Thread N" without "(crashed)" → stop
+    if (/^Thread \d+/.test(line) && inCrashedThread) {
+      inCrashedThread = false;
+      continue;
+    }
+    if (inCrashedThread) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      callStackLines.push(trimmed);
+      // Extract module from first frame: " 0  ModuleName!FunctionName ..."
       if (faultingModule === 'Unknown') {
-        const moduleMatch = line.match(/\s(\S+)`/);
+        const moduleMatch = trimmed.match(/^\d+\s+(\S+)!/);
         if (moduleMatch) faultingModule = moduleMatch[1];
       }
     }
@@ -530,14 +538,16 @@ function extractCallStackMacos(output: string) {
   return { callStack: callStackLines.join('\n'), exceptionType, exceptionMessage: exceptionMessage.trim(), faultingModule };
 }
 
-export function extractCallStack(output: string): {
+export function extractCallStack(
+  output: string,
+  osType: 'windows' | 'macos'
+): {
   callStack: string;
   exceptionType: string;
   exceptionMessage: string;
   faultingModule: string;
 } {
-  const platform = getCurrentPlatform();
-  return platform === 'macos'
+  return osType === 'macos'
     ? extractCallStackMacos(output)
     : extractCallStackWindows(output);
 }

@@ -289,7 +289,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       { name: 'Load Stack Trace',   status: 'pending' }, // 0  auto
       { name: 'Prepare Work Dir',   status: 'pending' }, // 1  auto
       { name: 'Download Dump',      status: 'pending' }, // 2  auto
-      { name: 'Analyze Dump (CDB)', status: 'pending' }, // 3  auto
+      { name: 'Analyze Dump',       status: 'pending' }, // 3  auto
       { name: 'Run by AI',          status: 'pending' }, // 4  awaiting (gate)
       { name: 'Clone / Pull',       status: 'pending' }, // 5  after click
       { name: 'Init Submodule',     status: 'pending' }, // 6  after click
@@ -350,6 +350,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       // Step 3: Analyze dump with CDB
       steps[3].status = 'running';
       emitSteps(crashId, steps);
+      const crashOsType = detail.osType ?? 'windows';
       let cdbCallStack = callStack;
       let cdbExceptionType = exceptionType;
       let cdbFaultingModule = detail.stackTraces[0]?.dllName || 'Unknown';
@@ -357,14 +358,15 @@ export function pipelineRouter(io: SocketIOServer): Router {
       let cdbTxtPath = '';
       try {
         const dmpBase = path.basename(dmpPath, '.dmp');
-        cdbTxtPath = path.join(pdbDir, `${dmpBase}_cdb.txt`);
+        const cachedExt = crashOsType === 'macos' ? '_minidump.txt' : '_cdb.txt';
+        cdbTxtPath = path.join(pdbDir, `${dmpBase}${cachedExt}`);
         if (fs.existsSync(cdbTxtPath)) {
           cdbOutput = fs.readFileSync(cdbTxtPath, 'utf-8');
-          log(3, `Using cached CDB output: ${cdbTxtPath}`);
+          log(3, `Using cached output: ${cdbTxtPath}`);
         } else {
-          cdbOutput = await analyzeDump(dmpPath, pdbDir, (line) => log(3, line));
+          cdbOutput = await analyzeDump(dmpPath, pdbDir, crashOsType, (line) => log(3, line));
         }
-        const parsed = extractCallStack(cdbOutput);
+        const parsed = extractCallStack(cdbOutput, crashOsType);
         if (parsed.callStack) {
           cdbCallStack = parsed.callStack;
           cdbFaultingModule = parsed.faultingModule || cdbFaultingModule;
@@ -372,8 +374,9 @@ export function pipelineRouter(io: SocketIOServer): Router {
             cdbExceptionType = parsed.exceptionType;
           }
         }
+        const toolName = crashOsType === 'macos' ? 'minidump_stackwalk' : 'CDB';
         steps[3].status = 'done';
-        steps[3].message = `CDB analysis complete — ${cdbOutput.split('\n').length} lines`;
+        steps[3].message = `${toolName} analysis complete — ${cdbOutput.split('\n').length} lines`;
       } catch (cdbErr: any) {
         steps[3].status = 'done';
         steps[3].message = `CDB skipped: ${cdbErr.message.split('\n')[0]}`;

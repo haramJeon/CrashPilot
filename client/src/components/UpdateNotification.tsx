@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, RefreshCw, X, ArrowUp, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Download, RefreshCw, X, Loader2, CheckCircle, AlertTriangle, ArrowUp } from 'lucide-react';
 import { apiGet, apiPost } from '../hooks/useApi';
 import { useSocket } from '../hooks/useSocket';
 import './UpdateNotification.css';
@@ -62,7 +62,6 @@ export default function UpdateNotification() {
   }, [socketRef]);
 
   const startDownload = async () => {
-    setDismissed(false);
     try {
       await apiPost('/update/download', {});
     } catch (e: any) {
@@ -76,7 +75,6 @@ export default function UpdateNotification() {
       await apiPost('/update/apply', {});
       setState('applying');
       setStateMessage('재시작 중... 잠시 후 자동으로 새로고침됩니다.');
-      // Poll until server comes back up
       setTimeout(() => pollForRestart(), 5000);
     } catch (e: any) {
       setState('error');
@@ -111,87 +109,130 @@ export default function UpdateNotification() {
   }
 
   return (
-    <div className={`update-banner update-banner-${state}`}>
-      <div className="update-banner-content">
-        <div className="update-banner-left">
-          {state === 'idle' && <ArrowUp size={16} className="update-icon" />}
-          {(state === 'downloading' || state === 'staging') && <Loader2 size={16} className="update-icon spin" />}
-          {state === 'ready' && <CheckCircle size={16} className="update-icon" />}
-          {state === 'error' && <AlertTriangle size={16} className="update-icon" />}
-
-          <div className="update-banner-text">
-            {state === 'idle' && (
-              <>
-                <strong>새 버전 사용 가능:</strong> v{info?.latestVersion}
-                {info?.releaseNotes && (
-                  <button className="update-notes-toggle" onClick={() => setShowNotes((v) => !v)}>
-                    {showNotes ? '숨기기' : '릴리즈 노트'}
-                  </button>
-                )}
-              </>
-            )}
-            {state === 'downloading' && (
-              <>
-                <strong>다운로드 중...</strong>
-                {progress && (
-                  <span className="update-progress-text">
-                    {progress.totalBytes > 0
-                      ? `${formatBytes(progress.bytesDownloaded)} / ${formatBytes(progress.totalBytes)} (${progress.percent}%)`
-                      : formatBytes(progress.bytesDownloaded)}
-                  </span>
-                )}
-              </>
-            )}
-            {state === 'staging' && <strong>업데이트 파일 준비 중...</strong>}
-            {state === 'ready' && (
-              <strong>v{info?.latestVersion} 다운로드 완료 — 재시작하면 업데이트가 적용됩니다</strong>
-            )}
-            {state === 'error' && (
-              <>
-                <strong>업데이트 실패:</strong> <span className="update-error-msg">{stateMessage}</span>
-              </>
-            )}
+    <div className="update-modal-backdrop">
+      <div className="update-modal">
+        {/* Header */}
+        <div className="update-modal-header">
+          <div className="update-modal-header-icon">
+            {state === 'idle' && <ArrowUp size={20} />}
+            {(state === 'downloading' || state === 'staging') && <Loader2 size={20} className="spin" />}
+            {state === 'ready' && <CheckCircle size={20} />}
+            {state === 'error' && <AlertTriangle size={20} />}
           </div>
-        </div>
-
-        <div className="update-banner-actions">
-          {state === 'idle' && (
-            <button className="update-btn update-btn-primary" onClick={startDownload}>
-              <Download size={14} />
-              다운로드 & 설치
+          <h3 className="update-modal-title">
+            {state === 'idle' && '새 업데이트가 있습니다'}
+            {state === 'downloading' && '업데이트 다운로드 중'}
+            {state === 'staging' && '업데이트 준비 중'}
+            {state === 'ready' && '업데이트 준비 완료'}
+            {state === 'error' && '업데이트 오류'}
+          </h3>
+          {(state === 'idle' || state === 'error') && (
+            <button className="update-modal-close" onClick={() => setDismissed(true)} title="닫기">
+              <X size={16} />
             </button>
           )}
+        </div>
+
+        {/* Body */}
+        <div className="update-modal-body">
+          {state === 'idle' && (
+            <>
+              <p className="update-modal-msg">
+                최신 버전 <strong>v{info?.latestVersion}</strong>이 출시되었습니다.<br />
+                현재 버전: v{info?.currentVersion}
+              </p>
+              <p className="update-modal-ask">지금 다운로드하여 설치하시겠습니까?</p>
+              {info?.releaseNotes && (
+                <>
+                  <button className="update-notes-toggle" onClick={() => setShowNotes((v) => !v)}>
+                    {showNotes ? '릴리즈 노트 숨기기' : '릴리즈 노트 보기'}
+                  </button>
+                  {showNotes && (
+                    <div className="update-release-notes">
+                      <pre>{info.releaseNotes}</pre>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {state === 'downloading' && (
+            <>
+              <p className="update-modal-msg">
+                v{info?.latestVersion} 다운로드 중...
+              </p>
+              {progress && progress.totalBytes > 0 && (
+                <div className="update-progress-bar">
+                  <div className="update-progress-fill" style={{ width: `${progress.percent}%` }} />
+                </div>
+              )}
+              {progress && (
+                <p className="update-progress-text">
+                  {progress.totalBytes > 0
+                    ? `${formatBytes(progress.bytesDownloaded)} / ${formatBytes(progress.totalBytes)} (${progress.percent}%)`
+                    : formatBytes(progress.bytesDownloaded)}
+                </p>
+              )}
+            </>
+          )}
+
+          {state === 'staging' && (
+            <p className="update-modal-msg">업데이트 파일을 준비하고 있습니다...</p>
+          )}
+
+          {state === 'ready' && (
+            <p className="update-modal-msg">
+              <strong>v{info?.latestVersion}</strong> 설치 준비가 완료되었습니다.<br />
+              재시작하면 업데이트가 적용됩니다.
+            </p>
+          )}
+
+          {state === 'error' && (
+            <p className="update-modal-msg update-error-msg">
+              {stateMessage}
+            </p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="update-modal-footer">
+          {state === 'idle' && (
+            <>
+              <button className="update-btn update-btn-secondary" onClick={() => setDismissed(true)}>
+                나중에
+              </button>
+              <button className="update-btn update-btn-primary" onClick={startDownload}>
+                <Download size={14} />
+                설치
+              </button>
+            </>
+          )}
+
+          {(state === 'downloading' || state === 'staging') && (
+            <p className="update-modal-status">잠시만 기다려 주세요...</p>
+          )}
+
           {state === 'ready' && (
             <button className="update-btn update-btn-restart" onClick={applyUpdate}>
               <RefreshCw size={14} />
               지금 재시작
             </button>
           )}
+
           {state === 'error' && (
-            <button className="update-btn update-btn-primary" onClick={startDownload}>
-              <RefreshCw size={14} />
-              재시도
-            </button>
-          )}
-          {(state === 'idle' || state === 'error') && (
-            <button className="update-dismiss" onClick={() => setDismissed(true)} title="닫기">
-              <X size={14} />
-            </button>
+            <>
+              <button className="update-btn update-btn-secondary" onClick={() => setDismissed(true)}>
+                닫기
+              </button>
+              <button className="update-btn update-btn-primary" onClick={startDownload}>
+                <RefreshCw size={14} />
+                재시도
+              </button>
+            </>
           )}
         </div>
       </div>
-
-      {(state === 'downloading') && progress && progress.totalBytes > 0 && (
-        <div className="update-progress-bar">
-          <div className="update-progress-fill" style={{ width: `${progress.percent}%` }} />
-        </div>
-      )}
-
-      {showNotes && info?.releaseNotes && (
-        <div className="update-release-notes">
-          <pre>{info.releaseNotes}</pre>
-        </div>
-      )}
     </div>
   );
 }

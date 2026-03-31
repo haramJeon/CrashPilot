@@ -92,6 +92,7 @@ export interface AppConfig {
   };
   jiraSprintIds?: Record<string, number>; // softwareId (as string) → Jira sprint ID
   autoUpdate?: {
+    enabled?: boolean;    // default true — set false to disable update checks
     githubRepo: string;  // e.g. "org/crashPilot"
     githubToken?: string; // personal access token (for private repos)
   };

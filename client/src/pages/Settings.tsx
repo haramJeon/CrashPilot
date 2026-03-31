@@ -371,6 +371,20 @@ export default function Settings() {
         {/* Auto Update */}
         <div className="settings-section">
           <h3>자동 업데이트</h3>
+          <div className="field field-toggle">
+            <label>
+              <input
+                type="checkbox"
+                checked={config.autoUpdate?.enabled !== false}
+                onChange={(e) => setConfig({
+                  ...config,
+                  autoUpdate: { ...(config.autoUpdate ?? { githubRepo: '' }), enabled: e.target.checked },
+                })}
+              />
+              업데이트 확인 활성화
+            </label>
+            <p className="field-help">비활성화하면 앱 시작 시 업데이트를 확인하지 않습니다.</p>
+          </div>
           <div className="field">
             <label>GitHub Repository <span className="field-hint">(CrashPilot 배포 repo)</span></label>
             <input
@@ -379,10 +393,10 @@ export default function Settings() {
                 ...config,
                 autoUpdate: { ...(config.autoUpdate ?? {}), githubRepo: e.target.value },
               })}
-              placeholder="org/crashPilot"
+              placeholder="owner/repo 또는 https://github.com/owner/repo"
             />
             <p className="field-help">
-              설정하면 앱 시작 시 자동으로 업데이트를 확인합니다. 형식: <code>owner/repo</code>
+              설정하면 앱 시작 시 자동으로 업데이트를 확인합니다. 형식: <code>owner/repo</code> 또는 GitHub URL
             </p>
           </div>
           <div className="field">

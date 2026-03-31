@@ -52,6 +52,26 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Accept "owner/repo", "https://github.com/owner/repo", or
+ * "https://github.com/owner/repo.git" and return [owner, repo].
+ */
+function parseOwnerRepo(input: string): [string, string] | null {
+  // Full URL: extract from pathname
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    try {
+      const url = new URL(input);
+      const parts = url.pathname.replace(/\.git$/, '').split('/').filter(Boolean);
+      if (parts.length >= 2) return [parts[0], parts[1]];
+      return null;
+    } catch { return null; }
+  }
+  // "owner/repo" or "owner/repo.git"
+  const parts = input.replace(/\.git$/, '').split('/');
+  if (parts.length === 2 && parts[0] && parts[1]) return [parts[0], parts[1]];
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,8 +90,9 @@ export async function checkForUpdates(
   githubRepo: string,
   githubToken?: string,
 ): Promise<UpdateInfo> {
-  const [owner, repo] = githubRepo.split('/');
-  if (!owner || !repo) throw new Error(`Invalid githubRepo format: "${githubRepo}" — expected "owner/repo"`);
+  const ownerRepo = parseOwnerRepo(githubRepo);
+  if (!ownerRepo) throw new Error(`Invalid githubRepo format: "${githubRepo}" — expected "owner/repo" or a GitHub URL`);
+  const [owner, repo] = ownerRepo;
 
   const url = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
   const headers: Record<string, string> = {

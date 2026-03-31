@@ -27,7 +27,7 @@ export function updateRouter(io: SocketIOServer): Router {
   // Returns cached or fresh update info.
   router.get('/check', async (_req, res) => {
     const config = loadConfig();
-    if (!config.autoUpdate?.githubRepo) {
+    if (!config.autoUpdate?.githubRepo || config.autoUpdate.enabled === false) {
       return res.json({
         hasUpdate: false,
         currentVersion: CURRENT_VERSION,

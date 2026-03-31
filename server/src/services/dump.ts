@@ -394,15 +394,22 @@ async function analyzeDumpMacos(
     throw new Error(`minidump_stackwalk not found at: ${toolPath}`);
   }
 
+  // The zip extracts with a subdirectory (e.g. modelBuilder-xcode-deploy-sym/).
+  // Find it and pass it as the symbol path; fall back to symsDir itself.
+  const symSubDir = fs.readdirSync(symsDir)
+    .map(name => path.join(symsDir, name))
+    .find(p => fs.statSync(p).isDirectory());
+  const resolvedSymsDir = symSubDir ?? symsDir;
+
   const dmpBase = path.basename(dumpPath, '.dmp');
   const txtPath = path.join(path.dirname(dumpPath), `${dmpBase}_minidump.txt`);
 
   return new Promise((resolve, reject) => {
     onLog?.(`> Running minidump_stackwalk: "${toolPath}"`);
     onLog?.(`  dump: "${dumpPath}"`);
-    onLog?.(`  symbols: "${symsDir}"`);
+    onLog?.(`  symbols: "${resolvedSymsDir}"`);
 
-    const proc = spawn(toolPath, ['-s', dumpPath, symsDir]);
+    const proc = spawn(toolPath, ['-s', dumpPath, resolvedSymsDir]);
 
     const outputLines: string[] = [];
 

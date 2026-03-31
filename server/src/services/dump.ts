@@ -388,7 +388,10 @@ async function analyzeDumpMacos(
   symsDir: string,
   onLog?: (line: string) => void
 ): Promise<string> {
-  const toolPath = path.join(getAppRoot(), 'tools', 'mac', 'minidump_stackwalk');
+  const isWin = process.platform === 'win32';
+  const toolPath = isWin
+    ? path.join(getAppRoot(), 'tools', 'win', 'minidump_stackwalk.exe')
+    : path.join(getAppRoot(), 'tools', 'mac', 'minidump_stackwalk');
 
   if (!fs.existsSync(toolPath)) {
     throw new Error(`minidump_stackwalk not found at: ${toolPath}`);
@@ -409,7 +412,10 @@ async function analyzeDumpMacos(
     onLog?.(`  dump: "${dumpPath}"`);
     onLog?.(`  symbols: "${resolvedSymsDir}"`);
 
-    const proc = spawn(toolPath, ['-s', dumpPath, resolvedSymsDir]);
+    // Old C++ minidump_stackwalk uses `-s <dump> <syms>` but the Rust version
+    // (rust-minidump) takes positional args: `<dump> <syms>` without -s flag.
+    const args = isWin ? [dumpPath, resolvedSymsDir] : ['-s', dumpPath, resolvedSymsDir];
+    const proc = spawn(toolPath, args);
 
     const outputLines: string[] = [];
 

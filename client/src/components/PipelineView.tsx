@@ -62,7 +62,7 @@ function StepLogs({ step }: { step: PipelineStep }) {
 }
 
 export default function PipelineView({ steps, onRunAI, onRetry }: Props) {
-  const isRunning = steps.some((s) => s.status === 'running' || s.status === 'awaiting');
+  const isRunning = steps.some((s) => s.status === 'running');
   return (
     <div className="pipeline">
       {steps.map((step, idx) => (

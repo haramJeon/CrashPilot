@@ -133,8 +133,8 @@ export default function CrashDetail() {
 
 
   const hasStack = (crash?.stackTraces?.length ?? 0) > 0 || (crash?.mainStackTraces?.length ?? 0) > 0;
-  const isRunning = steps.some((s) => s.status === 'running');
-  const isAwaitingAI = steps.some((s) => s.status === 'awaiting');
+  const isRunning = socketReceivedRef.current && steps.some((s) => s.status === 'running');
+  const isAwaitingAI = socketReceivedRef.current && steps.some((s) => s.status === 'awaiting');
 
   const stopPipeline = async () => {
     if (!crash) return;
@@ -291,12 +291,8 @@ export default function CrashDetail() {
         </div>
         <div className="detail-actions">
           <StatusBadge status={crash.status} />
-          {!hasStack ? (
-            <span className="no-stack-badge">
-              <AlertTriangle size={14} />
-              분석 불가 (스택 없음)
-            </span>
-          ) : isRunning ? (
+          {!hasStack && <span className="no-stack-badge"><AlertTriangle size={14} />분석 불가 (스택 없음)</span>}
+          {isRunning ? (
             <button className="btn btn-danger" onClick={stopPipeline}>
               <Square size={16} />
               Stop
@@ -327,7 +323,7 @@ export default function CrashDetail() {
       </div>
 
       <div className="detail-grid">
-        {steps.length > 0 && (
+        {steps.length > 0 && hasStack && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
 

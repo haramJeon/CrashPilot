@@ -5,7 +5,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
-import { checkoutBranch, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
+import { checkoutRef, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
 import { loadConfig } from '../services/config';
@@ -156,7 +156,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       } else {
         steps[5].status = 'running';
         emitSteps(crashId, steps);
-        await checkoutBranch(releaseBranch, (line) => log(5, line));
+        await checkoutRef(releaseBranch, (line: string) => log(5, line));
         steps[5].status = 'done';
         steps[5].message = `${releaseBranch} → ${repoDir}`;
       }
@@ -483,7 +483,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       res.json({ action: 'retrying_pr' });
 
       try {
-        const repoDir = ps.pdbDir ? require('../services/git').getRepoDirForBranch(ps.releaseBranch) : undefined;
+        const repoDir = ps.pdbDir ? getRepoDirForBranch(ps.releaseBranch) : undefined;
         const prUrl = await createPullRequest({
           branch: fixBranch,
           baseBranch: ps.releaseBranch,

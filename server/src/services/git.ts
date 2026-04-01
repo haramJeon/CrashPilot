@@ -226,9 +226,6 @@ export async function initSubmodules(repoDir: string, onLog?: (line: string) => 
   await gitWithLog(repoDir, onLog).submoduleUpdate(['--init']);
 }
 
-// Keep old name as alias for backward compat
-export const checkoutBranch = checkoutRef;
-
 export async function createFixBranch(
   baseRef: string,
   crashId: string,
@@ -303,7 +300,7 @@ function findSubmodule(repoDir: string, filePath: string): string | null {
  * Convert an absolute file path to a repo-relative path.
  * If it's already relative, return as-is (with forward slashes).
  */
-function toRepoRelative(repoDir: string, filePath: string): string {
+export function toRepoRelative(repoDir: string, filePath: string): string {
   const normalizedFile = filePath.replace(/\\/g, '/');
   const normalizedRepo = repoDir.replace(/\\/g, '/').replace(/\/?$/, '/');
   if (normalizedFile.startsWith(normalizedRepo)) {
@@ -380,58 +377,3 @@ export async function commitAndPush(
 }
 
 
-const SOURCE_EXTS = new Set(['.cpp', '.h', '.c', '.hpp', '.cc', '.cxx']);
-const MAX_FILES_PER_DLL = 8;
-const MAX_TOTAL_BYTES = 100_000; // 100 KB total to avoid token overflow
-
-function walkSourceFiles(dir: string): string[] {
-  const files: string[] = [];
-  try {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-        files.push(...walkSourceFiles(path.join(dir, entry.name)));
-      } else if (entry.isFile() && SOURCE_EXTS.has(path.extname(entry.name).toLowerCase())) {
-        files.push(path.join(dir, entry.name));
-      }
-    }
-  } catch { /* skip inaccessible dirs */ }
-  return files;
-}
-
-export async function getSourceFiles(
-  repoDir: string,
-  dllNames: string[]
-): Promise<{ path: string; content: string }[]> {
-  if (!fs.existsSync(repoDir) || dllNames.length === 0) return [];
-
-  const allFiles = walkSourceFiles(repoDir);
-  const seen = new Set<string>();
-  const results: { path: string; content: string }[] = [];
-  let totalBytes = 0;
-
-  for (const dll of dllNames) {
-    const keyword = dll.toLowerCase().replace(/\.dll$/i, '');
-    const matched = allFiles
-      .filter((f) => {
-        const base = path.basename(f, path.extname(f)).toLowerCase();
-        const parts = f.toLowerCase().split(/[\\/]/);
-        return base.includes(keyword) || parts.some((p) => p.includes(keyword));
-      })
-      .slice(0, MAX_FILES_PER_DLL);
-
-    for (const fullPath of matched) {
-      const relPath = path.relative(repoDir, fullPath).replace(/\\/g, '/');
-      if (seen.has(relPath)) continue;
-      seen.add(relPath);
-      try {
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        if (totalBytes + content.length > MAX_TOTAL_BYTES) continue;
-        totalBytes += content.length;
-        results.push({ path: relPath, content });
-      } catch { /* skip unreadable */ }
-    }
-  }
-
-  return results;
-}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Save, CheckCircle, AlertCircle, Trash2, Plus } from 'lucide-react';
-import { apiGet, apiPost } from '../hooks/useApi';
+import { apiGet, apiPost, apiDelete } from '../hooks/useApi';
 import type { AppConfig, ApiSoftware, Platform } from '../types';
 import './Settings.css';
 
@@ -50,7 +50,7 @@ export default function Settings() {
   };
 
   const deleteMapping = async (tag: string) => {
-    await fetch(`/api/git/tag-branch-map/${encodeURIComponent(tag)}`, { method: 'DELETE' }).catch(() => {});
+    await apiDelete(`/git/tag-branch-map/${encodeURIComponent(tag)}`).catch(() => {});
     loadTagBranchMap();
   };
 

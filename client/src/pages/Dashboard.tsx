@@ -142,6 +142,7 @@ export default function Dashboard() {
   const [statusMsg, setStatusMsg] = useState(restored?.statusMsg ?? '');
   const [selectedSoftwareId, setSelectedSoftwareId] = useState<number>(restored?.selectedSoftwareId ?? 0);
   const [dateRange, setDateRange] = useState(restored?.dateRange ?? defaultDateRange());
+  const [jiraUrl, setJiraUrl] = useState('');
   const navigate = useNavigate();
   const socketRef = useSocket();
   const tagFoldersRef = useRef<Record<string, string>>({});
@@ -166,10 +167,11 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    apiGet<{ git: { softwareTagFolders: Record<string, string> } }>('/config')
+    apiGet<{ git: { softwareTagFolders: Record<string, string> }; jira: { url: string } }>('/config')
       .then((cfg) => {
         const folders = cfg.git.softwareTagFolders ?? {};
         tagFoldersRef.current = folders;
+        setJiraUrl(cfg.jira?.url ?? '');
         // Re-populate tags if crashes were already loaded before config arrived (race condition fix)
         setCrashes((prev) => {
           if (prev.length === 0) return prev;
@@ -342,7 +344,7 @@ export default function Dashboard() {
                     </td>
                     <td className="crash-issue">
                       {crash.issueKey
-                        ? <a href={`https://meditcompany.atlassian.net/browse/${crash.issueKey}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{crash.issueKey}</a>
+                        ? <a href={`${jiraUrl.replace(/\/$/, '')}/browse/${crash.issueKey}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{crash.issueKey}</a>
                         : '—'}
                     </td>
                     <td className="crash-date">{new Date(crash.receivedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>

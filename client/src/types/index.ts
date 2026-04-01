@@ -65,7 +65,6 @@ export interface AppConfig {
     softwareIds: number[];
   };
   claude: {
-    apiKey: string;
     model: string;
   };
   debugger: DebuggerConfig;

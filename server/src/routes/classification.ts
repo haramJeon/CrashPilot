@@ -10,15 +10,14 @@ import { runClaude } from '../services/claude';
 import { ClassificationRun, ClassificationResult } from '../types';
 import { getDataRoot } from '../utils/appPaths';
 
-const RUNS_DIR = () => path.join(getDataRoot(), 'data', 'classification-runs');
+const RUNS_DIR = path.join(getDataRoot(), 'data', 'classification-runs');
 
 function ensureRunsDir() {
-  const dir = RUNS_DIR();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(RUNS_DIR)) fs.mkdirSync(RUNS_DIR, { recursive: true });
 }
 
 function runFilePath(runId: string): string {
-  return path.join(RUNS_DIR(), `${runId}.json`);
+  return path.join(RUNS_DIR, `${runId}.json`);
 }
 
 function saveRun(run: ClassificationRun) {
@@ -39,11 +38,11 @@ function loadRun(runId: string): ClassificationRun | null {
 function listRuns(): ClassificationRun[] {
   ensureRunsDir();
   try {
-    return fs.readdirSync(RUNS_DIR())
+    return fs.readdirSync(RUNS_DIR)
       .filter((f) => f.endsWith('.json'))
       .map((f) => {
         try {
-          return JSON.parse(fs.readFileSync(path.join(RUNS_DIR(), f), 'utf-8')) as ClassificationRun;
+          return JSON.parse(fs.readFileSync(path.join(RUNS_DIR, f), 'utf-8')) as ClassificationRun;
         } catch {
           return null;
         }
@@ -87,9 +86,9 @@ export function classificationRouter(io: SocketIOServer): Router {
   // DELETE /api/classification/history
   router.delete('/history', (_req, res) => {
     ensureRunsDir();
-    fs.readdirSync(RUNS_DIR())
+    fs.readdirSync(RUNS_DIR)
       .filter((f) => f.endsWith('.json'))
-      .forEach((f) => fs.unlinkSync(path.join(RUNS_DIR(), f)));
+      .forEach((f) => fs.unlinkSync(path.join(RUNS_DIR, f)));
     res.status(204).end();
   });
 

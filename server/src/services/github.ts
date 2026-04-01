@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Octokit } from '@octokit/rest';
 import { loadConfig } from './config';
+import { toRepoRelative } from './git';
 import { CrashAnalysis } from '../types';
 
 import { getDataRoot } from '../utils/appPaths';
@@ -201,16 +202,6 @@ export async function findNearestBranchForTag(
   } catch {
     return null;
   }
-}
-
-/** Normalize a file path to repo-relative (forward slashes). */
-function toRepoRelative(repoDir: string, filePath: string): string {
-  const normalizedFile = filePath.replace(/\\/g, '/');
-  const normalizedRepo = repoDir.replace(/\\/g, '/').replace(/\/?$/, '/');
-  if (normalizedFile.startsWith(normalizedRepo)) {
-    return normalizedFile.slice(normalizedRepo.length);
-  }
-  return normalizedFile;
 }
 
 /** Read submodule entries from .gitmodules (handles CRLF).

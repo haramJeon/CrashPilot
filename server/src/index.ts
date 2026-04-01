@@ -77,7 +77,8 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     const url = `http://localhost:${PORT}`;
     writeLog('INFO', `Port ${PORT} already in use — CrashPilot is already running. Opening browser...`);
-    exec(`start ${url}`, () => {});
+    const openCmd = process.platform === 'darwin' ? 'open' : 'start';
+    exec(`${openCmd} ${url}`, () => {});
     process.exit(0);
   } else {
     writeLog('FATAL', 'Server error:', err.message);
@@ -87,8 +88,8 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 server.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   writeLog('INFO', `CrashPilot server running on ${url}`);
-  // Auto-open browser (Windows only, ignore errors)
-  exec(`start ${url}`, (err) => {
+  const openCmd = process.platform === 'darwin' ? 'open' : 'start';
+  exec(`${openCmd} ${url}`, (err) => {
     if (err) writeLog('WARN', 'Could not open browser:', err.message);
   });
 });

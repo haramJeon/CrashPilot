@@ -10,14 +10,6 @@ export function getCurrentPlatform(): Platform {
   return os.platform() === 'darwin' ? 'macos' : 'windows';
 }
 
-function encryptConfig(config: AppConfig): any {
-  return JSON.parse(JSON.stringify(config));
-}
-
-function decryptConfig(raw: any): any {
-  return JSON.parse(JSON.stringify(raw));
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -126,24 +118,23 @@ export function loadConfig(): AppConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-      const decrypted = decryptConfig(raw);
       const merged: AppConfig = {
         ...DEFAULT_CONFIG,
-        ...decrypted,
-        softwareBuildPaths: { ...DEFAULT_CONFIG.softwareBuildPaths, ...decrypted.softwareBuildPaths },
-        crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...decrypted.crashReportServer },
-        claude: { ...DEFAULT_CONFIG.claude, ...decrypted.claude },
+        ...raw,
+        softwareBuildPaths: { ...DEFAULT_CONFIG.softwareBuildPaths, ...raw.softwareBuildPaths },
+        crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...raw.crashReportServer },
+        claude: { ...DEFAULT_CONFIG.claude, ...raw.claude },
         debugger: {
-          windows: { ...DEFAULT_CONFIG.debugger.windows, ...decrypted.debugger?.windows },
-          macos: { ...DEFAULT_CONFIG.debugger.macos, ...decrypted.debugger?.macos },
+          windows: { ...DEFAULT_CONFIG.debugger.windows, ...raw.debugger?.windows },
+          macos: { ...DEFAULT_CONFIG.debugger.macos, ...raw.debugger?.macos },
         },
         git: {
           ...DEFAULT_CONFIG.git,
-          ...decrypted.git,
-          softwareTagFolders: { ...DEFAULT_CONFIG.git.softwareTagFolders, ...decrypted.git?.softwareTagFolders },
+          ...raw.git,
+          softwareTagFolders: { ...DEFAULT_CONFIG.git.softwareTagFolders, ...raw.git?.softwareTagFolders },
         },
-        jira: { ...DEFAULT_CONFIG.jira, ...decrypted.jira },
-        jiraSprintIds: { ...DEFAULT_CONFIG.jiraSprintIds, ...decrypted.jiraSprintIds },
+        jira: { ...DEFAULT_CONFIG.jira, ...raw.jira },
+        jiraSprintIds: { ...DEFAULT_CONFIG.jiraSprintIds, ...raw.jiraSprintIds },
       };
       return applyDirDefaults(merged);
     }
@@ -156,6 +147,5 @@ export function loadConfig(): AppConfig {
 }
 
 export function saveConfig(config: AppConfig): void {
-  const encrypted = encryptConfig(config);
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(encrypted, null, 2), 'utf-8');
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }

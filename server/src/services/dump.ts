@@ -413,8 +413,8 @@ async function analyzeDumpMacos(
     onLog?.(`  dump: "${dumpPath}"`);
     onLog?.(`  symbols: "${resolvedSymsDir}"`);
 
-    // Old C++ minidump_stackwalk uses `-s <dump> <syms>` but the Rust version
-    // (rust-minidump) takes positional args: `<dump> <syms>` without -s flag.
+    // Windows uses minidump_stackwalk.exe (Rust/rust-minidump): positional args, no -s flag.
+    // macOS uses the old C++ minidump_stackwalk: requires -s flag before args.
     const args = isWin ? [dumpPath, resolvedSymsDir] : ['-s', dumpPath, resolvedSymsDir];
     const proc = spawn(toolPath, args);
 

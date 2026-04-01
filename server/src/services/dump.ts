@@ -398,8 +398,9 @@ async function analyzeDumpMacos(
   }
 
   // The zip extracts with a subdirectory (e.g. modelBuilder-xcode-deploy-sym/).
-  // Find it and pass it as the symbol path; fall back to symsDir itself.
+  // Skip numeric-named dirs (crash ID folders created by downloadDump) and use the symbol subdir.
   const symSubDir = fs.readdirSync(symsDir)
+    .filter(name => !/^\d+$/.test(name))
     .map(name => path.join(symsDir, name))
     .find(p => fs.statSync(p).isDirectory());
   const resolvedSymsDir = symSubDir ?? symsDir;

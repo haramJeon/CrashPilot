@@ -73,7 +73,7 @@ export default function PipelineView({ steps, onRunAI, onRetry }: Props) {
             {step.status === 'awaiting' && onRunAI && (
               <button className="btn-run-ai" onClick={onRunAI}>
                 <Bot size={13} />
-                Run by AI
+                Fix by AI
               </button>
             )}
             {(step.status === 'done' || step.status === 'error') && onRetry && !isRunning && (

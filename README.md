@@ -88,7 +88,7 @@ npm run dev
 ② Prepare Work Dir  — PDB 파일 다운로드 & 압축 해제
 ③ Download Dump     — .dmp 파일 다운로드
 ④ Analyze Dump (CDB)— CDB로 덤프 분석 (콜스택, 예외, 레지스터)
-⑤ Run by AI         — [수동 확인] AI 분석 시작 버튼
+⑤ Fix by AI         — [수동 확인] AI 분석 시작 버튼
 ⑥ Clone / Pull      — 릴리즈 브랜치 클론 또는 갱신
 ⑦ Init Submodule    — git submodule update --init
 ⑧ AI Analysis & Fix — Claude가 원인 분석 및 소스 수정

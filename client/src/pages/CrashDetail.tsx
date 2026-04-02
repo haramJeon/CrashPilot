@@ -308,7 +308,7 @@ export default function CrashDetail() {
           ) : isAwaitingAI ? (
             <button className="btn btn-ai" onClick={runAI}>
               <Bot size={16} />
-              Run by AI
+              Fix by AI
             </button>
           ) : history ? (
             <>

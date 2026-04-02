@@ -7,7 +7,9 @@ import { fetchAllNewReports, fetchSoftwares, fetchReportDetail } from '../servic
 import { classifyCrashes } from '../services/classifier';
 import { isJiraConfigured } from '../services/jira';
 import { runClaude } from '../services/claude';
-import { ClassificationRun, ClassificationResult } from '../types';
+import { loadHistory } from './pipeline';
+import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
+import { ClassificationRun, ClassificationResult, CrashReport } from '../types';
 import { getDataRoot } from '../utils/appPaths';
 
 const RUNS_DIR = path.join(getDataRoot(), 'data', 'classification-runs');
@@ -218,6 +220,154 @@ export function classificationRouter(io: SocketIOServer): Router {
     }
   });
 
+  // POST /api/classification/run-dump-and-analyze/:crashId
+  // dump 분석(PDB+CDB/minidump) 실행 후 연속으로 Claude 분류 분석
+  // body: CrashReport (dumpUrl 포함)
+  router.post('/run-dump-and-analyze/:crashId', async (req, res) => {
+    const crashId = Number(req.params.crashId);
+    if (isNaN(crashId)) return res.status(400).json({ error: 'Invalid crashId' });
+
+    const crash: CrashReport = req.body;
+    const config = loadConfig();
+    res.json({ ok: true });
+
+    const emit = (event: string, data: any) =>
+      io.emit(`classification:analysis:${event}`, { crashId, ...data });
+
+    try {
+      emit('log', { message: `크래시 #${crashId} 덤프 분석 시작...` });
+
+      const detail = await fetchReportDetail(crashId);
+      const osType = detail.osType ?? 'windows';
+      const exceptionType = detail.exceptionCode || detail.bugcheck || 'Unknown Exception';
+
+      // ── Dump 분석 ──────────────────────────────────────────────────────
+      let cdbCallStack: string | null = null;
+      let stackSource = 'API';
+
+      try {
+        emit('log', { message: 'PDB 파일 준비 중...' });
+        const pdbDir = await downloadPdbFiles(
+          detail.softwareId, detail.swVersion, osType,
+          (line) => emit('log', { message: line }),
+        );
+
+        emit('log', { message: 'dump 분석 중...' });
+        const dmpPath = await downloadDump(
+          String(crashId), crash.dumpUrl, pdbDir,
+          (line) => emit('log', { message: line }),
+        );
+
+        const dmpBase = path.basename(dmpPath, '.dmp');
+        const cachedExt = osType === 'macos' ? '_minidump.txt' : '_cdb.txt';
+        const cdbTxtPath = path.join(pdbDir, `${dmpBase}${cachedExt}`);
+
+        let cdbOutput: string;
+        if (fs.existsSync(cdbTxtPath)) {
+          cdbOutput = fs.readFileSync(cdbTxtPath, 'utf-8');
+          emit('log', { message: `캐시된 분석 결과 사용: ${path.basename(cdbTxtPath)}` });
+        } else {
+          cdbOutput = await analyzeDump(dmpPath, pdbDir, osType, (line) => emit('log', { message: line }));
+        }
+
+        const parsed = extractCallStack(cdbOutput, osType);
+        if (parsed.callStack) {
+          cdbCallStack = parsed.callStack;
+          stackSource = osType === 'macos' ? 'minidump_stackwalk' : 'CDB';
+        }
+      } catch (dumpErr: any) {
+        emit('log', { message: `덤프 분석 실패: ${dumpErr.message.split('\n')[0]} — API 스택으로 폴백` });
+      }
+
+      // ── 스택 결정 ────────────────────────────────────────────────────
+      // CDB/minidump 결과 없으면 기존 pipeline history → API 스택 순으로 폴백
+      if (!cdbCallStack || !cdbCallStack.trim() || cdbCallStack === '(no stack trace)') {
+        const pipelineHistory = loadHistory(String(crashId));
+        const historyCdb = pipelineHistory?.pipelineState?.cdbCallStack;
+        if (historyCdb && historyCdb.trim() && historyCdb !== '(no stack trace)') {
+          cdbCallStack = historyCdb;
+          stackSource = 'Pipeline (이전 실행)';
+        }
+      }
+
+      let fullStack: string;
+      if (cdbCallStack && cdbCallStack.trim() && cdbCallStack !== '(no stack trace)') {
+        fullStack = cdbCallStack;
+      } else {
+        const frames = detail.stackTraces.length > 0 ? detail.stackTraces : detail.mainStackTraces;
+        fullStack = frames.length > 0
+          ? frames
+              .slice(0, 30)
+              .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
+              .join('\n')
+          : '(스택 없음)';
+        stackSource = `API (${frames.length}프레임)`;
+      }
+
+      emit('log', { message: `스택 로드 완료 [출처: ${stackSource}]` });
+      emit('log', { message: 'Claude 분석 시작...' });
+
+      const prompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
+
+## 크래시 정보
+- Subject: ${detail.subject}
+- Exception Code: ${exceptionType}
+- SW Version: ${detail.swVersion}
+- OS: ${osType}
+
+## Call Stack:
+${fullStack}
+
+## 분석 요청
+1. 크래시가 발생한 핵심 함수/모듈을 식별하세요 (OS/런타임 프레임 제외)
+2. 예외 코드와 스택 패턴을 기반으로 가능한 근본 원인을 설명하세요
+3. 이 크래시의 버그 유형을 분류하세요 (null 참조, use-after-free, 스택 오버플로, race condition 등)
+4. 코드를 수정하지 말고, 수정 방향에 대한 힌트만 제공하세요
+
+## 예외 코드 참고
+- 0xC0000005 (ACCESS_VIOLATION): ~0x0–0xFF 범위 = null 역참조; 큰 주소 = 댕글링 포인터
+- 0xC00000FD (STACK_OVERFLOW): 스택에 재귀 패턴 탐색
+- 0xC0000374 (heap corruption): 크래시 위치 ≠ 손상 위치 — 가장 이른 의심 프레임 탐색
+- 0x40000015 (FATAL_APP_EXIT): std::terminate — 처리되지 않은 예외 또는 순수 가상 호출
+
+## 출력 형식 (JSON만, 마크다운 없이)
+{
+  "crashLocation": "크래시 발생 핵심 함수/모듈",
+  "bugType": "버그 유형 (한국어)",
+  "rootCause": "근본 원인 설명 (한국어, 3-5문장)",
+  "hints": "수정 방향 힌트 (한국어, 2-3문장, 코드 수정 없음)"
+}`;
+
+      const { promise } = runClaude(
+        prompt,
+        undefined,
+        [],
+        (line) => emit('log', { message: line }),
+        undefined,
+        config.claude.model,
+      );
+
+      const raw = await promise;
+
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+      } catch {
+        parsed = { crashLocation: '파싱 실패', bugType: 'unknown', rootCause: raw.slice(0, 500), hints: '' };
+      }
+
+      emit('complete', {
+        crashLocation: parsed.crashLocation ?? '',
+        bugType: parsed.bugType ?? '',
+        rootCause: parsed.rootCause ?? '',
+        hints: parsed.hints ?? '',
+      });
+    } catch (e: any) {
+      emit('error', { message: e?.message ?? String(e) });
+    }
+  });
+
   // POST /api/classification/analyze-crash/:crashId
   // 스택 기반 분석 전용 (코드 수정 없음)
   router.post('/analyze-crash/:crashId', async (req, res) => {
@@ -234,16 +384,28 @@ export function classificationRouter(io: SocketIOServer): Router {
       emit('log', { message: `크래시 #${crashId} 상세 정보 조회 중...` });
 
       const detail = await fetchReportDetail(crashId);
-      const frames = detail.stackTraces.length > 0 ? detail.stackTraces : detail.mainStackTraces;
 
-      const fullStack = frames.length > 0
-        ? frames
-            .slice(0, 30)
-            .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
-            .join('\n')
-        : '(스택 없음)';
+      // Pipeline CDB/minidump_stackwalk 결과 우선 사용, 없으면 API 스택 fallback
+      const pipelineHistory = loadHistory(String(crashId));
+      const cdbCallStack = pipelineHistory?.pipelineState?.cdbCallStack;
 
-      emit('log', { message: `스택 ${frames.length}프레임 로드 완료` });
+      let fullStack: string;
+      let stackSource: string;
+      if (cdbCallStack && cdbCallStack.trim() && cdbCallStack !== '(no stack trace)') {
+        fullStack = cdbCallStack;
+        stackSource = 'Pipeline (CDB/minidump_stackwalk)';
+      } else {
+        const frames = detail.stackTraces.length > 0 ? detail.stackTraces : detail.mainStackTraces;
+        fullStack = frames.length > 0
+          ? frames
+              .slice(0, 30)
+              .map((f, i) => `  #${i} ${f.functionName ? `${f.dllName}!${f.functionName}` : f.dllName}`)
+              .join('\n')
+          : '(스택 없음)';
+        stackSource = `API (${frames.length}프레임)`;
+      }
+
+      emit('log', { message: `스택 로드 완료 [출처: ${stackSource}]` });
       emit('log', { message: 'Claude 분석 시작...' });
 
       const prompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
@@ -254,7 +416,7 @@ export function classificationRouter(io: SocketIOServer): Router {
 - SW Version: ${detail.swVersion}
 - OS: ${detail.osType ?? 'unknown'}
 
-## Call Stack (상위 ${Math.min(frames.length, 30)}프레임):
+## Call Stack:
 ${fullStack}
 
 ## 분석 요청

@@ -19,7 +19,7 @@ function saveHistory(history: PipelineRunHistory): void {
   fs.writeFileSync(path.join(HISTORY_DIR, `${history.crashId}.json`), JSON.stringify(history, null, 2), 'utf-8');
 }
 
-function loadHistory(crashId: string): PipelineRunHistory | null {
+export function loadHistory(crashId: string): PipelineRunHistory | null {
   const file = path.join(HISTORY_DIR, `${crashId}.json`);
   if (!fs.existsSync(file)) return null;
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
@@ -418,6 +418,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         pipelineState,
       });
 
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'awaiting_ai', releaseTag: releaseBranch, steps: [...steps], pipelineState });
       io.emit('pipeline:awaiting_ai', { crashId });
     } catch (error: any) {
       const runningIdx = steps.findIndex((s) => s.status === 'running');

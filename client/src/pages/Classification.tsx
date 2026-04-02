@@ -115,11 +115,11 @@ function ResultRow({
   const runAnalysis = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setAnalysisState('running');
-    setAnalysisLogs([]);
-    setAnalysisResult(null);
+    setAnalysisLogs(['dump 분석 중...']);
     setOpen(true);
     try {
-      await apiPost(`/classification/analyze-crash/${result.crashId}`, {});
+      const crash = await apiGet<any>(`/crash/${result.crashId}`);
+      await apiPost(`/classification/run-dump-and-analyze/${result.crashId}`, crash);
     } catch (err: any) {
       setAnalysisState('error');
       setAnalysisLogs([`시작 실패: ${err.message}`]);

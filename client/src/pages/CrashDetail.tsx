@@ -323,7 +323,7 @@ export default function CrashDetail() {
       </div>
 
       <div className="detail-grid">
-        {steps.length > 0 && hasStack && (
+        {steps.length > 0 && (
           <div className="detail-card">
             <h3>Pipeline Progress</h3>
 

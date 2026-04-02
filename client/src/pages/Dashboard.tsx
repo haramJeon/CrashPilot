@@ -189,9 +189,11 @@ export default function Dashboard() {
     if (!socket) return;
     socket.on('crashes:updated', (data: CrashReport[]) => autoPopulateTags(data));
     socket.on('status', (data: { message: string }) => setStatusMsg(data.message));
-    socket.on('pipeline:complete', (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)])));
-    socket.on('pipeline:error', (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)])));
-    return () => { socket.off('crashes:updated'); socket.off('status'); socket.off('pipeline:complete'); socket.off('pipeline:error'); };
+    const addToHistory = (data: { crashId: string }) => setHistoryIds((prev) => new Set([...prev, Number(data.crashId)]));
+    socket.on('pipeline:complete', addToHistory);
+    socket.on('pipeline:error', addToHistory);
+    socket.on('pipeline:awaiting_ai', addToHistory);
+    return () => { socket.off('crashes:updated'); socket.off('status'); socket.off('pipeline:complete'); socket.off('pipeline:error'); socket.off('pipeline:awaiting_ai'); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 

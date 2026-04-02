@@ -101,7 +101,7 @@ export interface PipelineStep {
 export interface PipelineRunHistory {
   crashId: string;
   runAt: string;
-  status: 'completed' | 'error';
+  status: 'completed' | 'error' | 'awaiting_ai';
   releaseTag?: string;
   steps: PipelineStep[];
   analysis?: CrashAnalysis;

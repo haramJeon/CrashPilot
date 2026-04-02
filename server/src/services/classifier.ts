@@ -149,8 +149,8 @@ ${strict
   : `- SW 버전 차이는 판단 근거로 사용하지 않는다
 - 스택(Full Stack 포함) 어디에든 Jira 이슈 Summary/Description에 언급된 함수명·모듈명이 등장하면 validated
 - 크래시 위치(발생 함수·모듈)가 Jira 이슈와 같거나 인접한 call stack 흐름이면 validated
-- 스택 정보가 부족하거나 비교가 불확실한 경우에도 기본값은 validated (confidence: low)
-- 스택에 공통 함수/모듈이 전혀 없고 완전히 다른 기능 영역임이 명확할 때만 misclassified`
+- 스택에 공통 함수/모듈이 전혀 없고 완전히 다른 기능 영역임이 명확할 때만 misclassified
+- 스택 정보가 부족하거나 비교가 불확실한 경우 needs_analysis`
 }
 
 ## 대안 이슈 목록 (misclassified 판정 시 아래 목록에서 가장 적합한 이슈를 추천)
@@ -158,7 +158,7 @@ ${issueListText}
 
 ## 출력 형식 (JSON만, 마크다운 없이)
 {
-  "verdict": ${strict ? '"validated" 또는 "misclassified" 또는 "needs_analysis"' : '"validated" 또는 "misclassified"'},
+  "verdict": "validated" 또는 "misclassified" 또는 "needs_analysis",
   "confidence": "high" 또는 "medium" 또는 "low",
   "reason": "판단 이유 (한국어, 2-3문장)",
   "suggestedIssueKey": "misclassified일 때만 — 대안 이슈 목록 중 가장 적합한 이슈 키 (없으면 생략)",
@@ -169,14 +169,14 @@ ${issueListText}
     const raw = await askClaude(prompt, onLog, shouldAbort, config.claude.model);
     const parsed = parseClaudeJson(raw);
     return {
-      verdict: parsed.verdict ?? 'validated',
+      verdict: parsed.verdict ?? 'needs_analysis',
       confidence: parsed.confidence ?? 'low',
       reason: parsed.reason ?? '',
       suggestedIssueKey: parsed.suggestedIssueKey,
       suggestedIssueSummary: parsed.suggestedIssueSummary,
     };
   } catch (e) {
-    return { verdict: 'validated', confidence: 'low', reason: `분석 실패: ${e}` };
+    return { verdict: 'needs_analysis', confidence: 'low', reason: `분석 실패: ${e}` };
   }
 }
 

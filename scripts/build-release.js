@@ -103,6 +103,9 @@ const nameMap = {
   'crashpilot-server-mac-x64':        'CrashPilot-macos-x64',
   'crashpilot-server-mac-arm64':      'CrashPilot-macos-arm64',
   'crashpilot-server-linux-x64':      'CrashPilot-linux-x64',
+  // newer @yao-pkg/pkg versions may omit the platform suffix:
+  'crashpilot-server.exe':            'CrashPilot-win.exe',
+  'crashpilot-server':                'CrashPilot-macos-x64',
 };
 for (const [from, to] of Object.entries(nameMap)) {
   const src = path.join(releaseDir, from);

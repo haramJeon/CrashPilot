@@ -13,6 +13,18 @@ import { ClassificationRun, ClassificationResult, CrashReport } from '../types';
 import { getDataRoot } from '../utils/appPaths';
 
 const RUNS_DIR = path.join(getDataRoot(), 'data', 'classification-runs');
+const ANALYSES_DIR = path.join(getDataRoot(), 'data', 'crash-analyses');
+
+function saveCrashAdditionalAnalysis(crashId: number, data: { crashLocation: string; bugType: string; rootCause: string; hints: string }) {
+  if (!fs.existsSync(ANALYSES_DIR)) fs.mkdirSync(ANALYSES_DIR, { recursive: true });
+  fs.writeFileSync(path.join(ANALYSES_DIR, `${crashId}.json`), JSON.stringify({ ...data, analyzedAt: new Date().toISOString() }, null, 2), 'utf-8');
+}
+
+function loadCrashAdditionalAnalysis(crashId: number) {
+  const file = path.join(ANALYSES_DIR, `${crashId}.json`);
+  if (!fs.existsSync(file)) return null;
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return null; }
+}
 
 function ensureRunsDir() {
   if (!fs.existsSync(RUNS_DIR)) fs.mkdirSync(RUNS_DIR, { recursive: true });
@@ -74,6 +86,10 @@ export function classificationRouter(io: SocketIOServer): Router {
   router.get('/results/:runId', (req, res) => {
     const run = loadRun(req.params.runId);
     if (!run) return res.status(404).json({ error: 'Run not found' });
+    run.results = run.results.map((r) => {
+      const analysis = loadCrashAdditionalAnalysis(r.crashId);
+      return analysis ? { ...r, additionalAnalysis: analysis } : r;
+    });
     res.json(run);
   });
 
@@ -357,12 +373,14 @@ ${fullStack}
         parsed = { crashLocation: '파싱 실패', bugType: 'unknown', rootCause: raw.slice(0, 500), hints: '' };
       }
 
-      emit('complete', {
+      const result = {
         crashLocation: parsed.crashLocation ?? '',
         bugType: parsed.bugType ?? '',
         rootCause: parsed.rootCause ?? '',
         hints: parsed.hints ?? '',
-      });
+      };
+      saveCrashAdditionalAnalysis(crashId, result);
+      emit('complete', result);
     } catch (e: any) {
       emit('error', { message: e?.message ?? String(e) });
     }

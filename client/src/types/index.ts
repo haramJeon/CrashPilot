@@ -126,6 +126,14 @@ export type ClassificationVerdict =
   | 'no_stack'
   | 'needs_analysis';
 
+export interface CrashAdditionalAnalysis {
+  crashLocation: string;
+  bugType: string;
+  rootCause: string;
+  hints: string;
+  analyzedAt: string;
+}
+
 export interface ClassificationResult {
   crashId: number;
   crashSubject: string;
@@ -138,6 +146,7 @@ export interface ClassificationResult {
   reason: string;
   suggestedIssueKey?: string;
   suggestedIssueSummary?: string;
+  additionalAnalysis?: CrashAdditionalAnalysis;
 }
 
 export interface ClassificationRun {

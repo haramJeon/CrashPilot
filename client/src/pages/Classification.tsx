@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Play, Square, RefreshCw, CheckCircle, AlertTriangle, Link2, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search, Loader2, List } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../hooks/useApi';
 import { useSocket } from '../hooks/useSocket';
-import type { ApiSoftware, ClassificationRun, ClassificationResult, ClassificationVerdict } from '../types';
+import type { ApiSoftware, ClassificationRun, ClassificationResult, ClassificationVerdict, CrashAdditionalAnalysis } from '../types';
 import './Classification.css';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -52,12 +52,7 @@ function ConfidenceDot({ confidence }: { confidence: 'high' | 'medium' | 'low' }
 // Result Row
 // ─────────────────────────────────────────────────────────────────────────
 
-interface AnalysisResult {
-  crashLocation: string;
-  bugType: string;
-  rootCause: string;
-  hints: string;
-}
+type AnalysisResult = Omit<CrashAdditionalAnalysis, 'analyzedAt'>;
 
 function ResultRow({
   result,
@@ -71,9 +66,15 @@ function ResultRow({
   socketRef: React.MutableRefObject<any>;
 }) {
   const [open, setOpen] = useState(false);
-  const [analysisState, setAnalysisState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [analysisState, setAnalysisState] = useState<'idle' | 'running' | 'done' | 'error'>(
+    result.additionalAnalysis ? 'done' : 'idle'
+  );
   const [analysisLogs, setAnalysisLogs] = useState<string[]>([]);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
+    result.additionalAnalysis
+      ? { crashLocation: result.additionalAnalysis.crashLocation, bugType: result.additionalAnalysis.bugType, rootCause: result.additionalAnalysis.rootCause, hints: result.additionalAnalysis.hints }
+      : null
+  );
   const analysisLogsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -235,7 +236,11 @@ function ResultRow({
                 <Search size={13} />
                 추가 분석
                 {analysisState === 'running' && <Loader2 size={12} className="spin" />}
-                {analysisState === 'done' && <span className="analysis-done-badge">완료</span>}
+                {analysisState === 'done' && (
+                  <span className="analysis-done-badge">
+                    완료{result.additionalAnalysis?.analyzedAt ? ` · ${new Date(result.additionalAnalysis.analyzedAt).toLocaleString('ko-KR')}` : ''}
+                  </span>
+                )}
                 {analysisState === 'error' && <span className="analysis-error-badge">오류</span>}
               </div>
 

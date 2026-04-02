@@ -152,6 +152,14 @@ export type ClassificationVerdict =
   | 'no_stack'        // stack trace absent → cannot classify
   | 'needs_analysis'; // stack is too generic/ambiguous → deeper analysis required
 
+export interface CrashAdditionalAnalysis {
+  crashLocation: string;
+  bugType: string;
+  rootCause: string;
+  hints: string;
+  analyzedAt: string;
+}
+
 export interface ClassificationResult {
   crashId: number;
   crashSubject: string;
@@ -164,6 +172,7 @@ export interface ClassificationResult {
   reason: string;              // Claude's explanation (Korean)
   suggestedIssueKey?: string;  // misclassified → correct issue, assign → matched issue
   suggestedIssueSummary?: string;
+  additionalAnalysis?: CrashAdditionalAnalysis;
 }
 
 export interface ClassificationRun {

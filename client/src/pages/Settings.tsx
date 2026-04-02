@@ -14,6 +14,8 @@ export default function Settings() {
   const [tagBranchMap, setTagBranchMap] = useState<Record<string, string>>({});
   const [newTag, setNewTag] = useState('');
   const [newBranch, setNewBranch] = useState('');
+  const [jiraTestResult, setJiraTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [jiraTestLoading, setJiraTestLoading] = useState(false);
 
   const loadTagBranchMap = () => {
     apiGet<Record<string, string>>('/git/tag-branch-map').then(setTagBranchMap).catch(() => {});
@@ -335,6 +337,42 @@ export default function Settings() {
             />
           </div>
           <p className="field-help">Project Key는 crash의 issueKey에서 자동으로 감지됩니다. (예: APOS-2486 → APOS)</p>
+          <div className="field">
+            <label>연결 테스트</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                className="btn-secondary"
+                disabled={jiraTestLoading}
+                onClick={async () => {
+                  setJiraTestResult(null);
+                  setJiraTestLoading(true);
+                  try {
+                    const res = await apiPost<{ ok: boolean; displayName?: string; error?: string }>('/config/jira-test', {
+                      url: config?.jira?.url ?? '',
+                      email: config?.jira?.email ?? '',
+                      apiToken: config?.jira?.apiToken ?? '',
+                    });
+                    if (res.ok) {
+                      setJiraTestResult({ ok: true, text: `연결 성공 — ${res.displayName ?? 'OK'}` });
+                    } else {
+                      setJiraTestResult({ ok: false, text: res.error ?? '연결 실패' });
+                    }
+                  } catch (e: unknown) {
+                    setJiraTestResult({ ok: false, text: e instanceof Error ? e.message : '연결 실패' });
+                  } finally {
+                    setJiraTestLoading(false);
+                  }
+                }}
+              >
+                {jiraTestLoading ? '테스트 중...' : 'Jira 연결 테스트'}
+              </button>
+              {jiraTestResult && (
+                <span style={{ color: jiraTestResult.ok ? 'var(--success)' : 'var(--error)', fontSize: 13 }}>
+                  {jiraTestResult.ok ? '✓' : '✗'} {jiraTestResult.text}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Debugger */}

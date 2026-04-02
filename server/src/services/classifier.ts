@@ -25,9 +25,38 @@ const SYSTEM_DLLS = new Set([
   'sechost', 'advapi32', 'ws2_32', 'shlwapi', 'shell32', 'clr', 'mscorwks',
 ]);
 
+// 자체 DLL이더라도 스택에 이 함수들만 있으면 특정 이슈와 연결할 수 없는 범용 크래시
+const GENERIC_FUNCTIONS = new Set([
+  'abort', '_abort', '__abort', 'terminate', '_invoke_watson',
+  'raise', '_raise', 'signal', '_signal', 'exit', '_exit',
+  'raisefailfast', 'raisefastfailexception', 'raiseexception',
+  'unhandledexceptionfilter', 'kiuserexceptiondispatcher',
+  '_call_terminate', '__crtterminateprocess', '__fastfail',
+  'debugbreak', 'fatalappexit',
+]);
+
 function isSystemFrame(dllName: string): boolean {
   const name = dllName.toLowerCase().replace(/\.dll$/, '').split('!')[0];
   return SYSTEM_DLLS.has(name);
+}
+
+/**
+ * 스택이 범용적(generic)인지 판단.
+ * 조건: 자체 코드 프레임이 하나도 없거나,
+ *       자체 코드 프레임이 있어도 전부 GENERIC_FUNCTIONS에 해당하는 경우.
+ */
+export function isGenericStack(crash: CrashReport): boolean {
+  const frames = crash.stackTraces.length > 0 ? crash.stackTraces : crash.mainStackTraces;
+  if (frames.length === 0) return false; // 스택 자체 없음은 no_stack으로 처리
+
+  const ownFrames = frames.filter((f) => !isSystemFrame(f.dllName));
+  if (ownFrames.length === 0) return true; // 자체 프레임 전무 → 범용
+
+  // 자체 프레임이 있어도 전부 범용 함수면 범용 스택
+  return ownFrames.every((f) => {
+    const fn = (f.functionName ?? '').toLowerCase().replace(/[^a-z_]/g, '');
+    return !fn || GENERIC_FUNCTIONS.has(fn);
+  });
 }
 
 /**
@@ -362,6 +391,23 @@ export async function classifyCrashes(
         verdict: 'no_stack',
         confidence: 'low',
         reason: '스택 정보가 없어 분석할 수 없습니다.',
+      });
+      continue;
+    }
+
+    // 범용 스택 → Claude 호출 없이 needs_analysis 반환
+    if (isGenericStack(crash)) {
+      onLog?.(`[classifier] → 범용 스택 감지 (시스템/런타임 프레임만 존재) — 분석 생략`);
+      results.push({
+        crashId: crash.id,
+        crashSubject: crash.subject,
+        exceptionCode: crash.exceptionCode,
+        osType: crash.osType,
+        fingerprint,
+        currentIssueKey: validIssueKey,
+        verdict: 'needs_analysis',
+        confidence: 'low',
+        reason: '스택이 시스템/런타임 프레임으로만 구성되어 특정 이슈와 연결할 수 없습니다. 덤프 분석이 필요합니다.',
       });
       continue;
     }

@@ -280,6 +280,7 @@ export async function analyzeAndFix(params: {
   model?: string;
   customPrompt?: string;
   preAnalysisContext?: { crashLocation: string; bugType: string; rootCause: string; hints: string };
+  userLogCsv?: string;
 }): Promise<{
   rootCause: string;
   suggestedFix: string;
@@ -293,12 +294,16 @@ export async function analyzeAndFix(params: {
     ? `\n## Pre-Analysis Summary (reference — verify against actual code)\n- Crash Location: ${params.preAnalysisContext.crashLocation}\n- Bug Type: ${params.preAnalysisContext.bugType}\n- Root Cause: ${params.preAnalysisContext.rootCause}\n- Fix Hints: ${params.preAnalysisContext.hints}\n`
     : '';
 
+  const userLogSection = params.userLogCsv?.trim()
+    ? `\n## User Activity Log (CSV — recorded before the crash)\nUse this to understand what the user was doing just before the crash. Cross-reference with the call stack to narrow the root cause.\n${params.userLogCsv.trim()}\n`
+    : '';
+
   const prompt = params.customPrompt?.trim()
     ? `${params.customPrompt.trim()}${jsonFooter}`
     : `C++ crash analysis. Fix the crash with MINIMAL context usage — follow every rule below exactly.
 
 ${params.cdbTxtPath ? `CDB output: ${params.cdbTxtPath}` : `Exception: ${params.exceptionType} in ${params.faultingModule} (no CDB file available)`}
-${preAnalysisSection}
+${preAnalysisSection}${userLogSection}
 Source repo is your current working directory.
 
 ## Context Minimization Rules (MANDATORY):

@@ -8,7 +8,7 @@ import { classifyCrashes } from '../services/classifier';
 import { isJiraConfigured } from '../services/jira';
 import { runClaude } from '../services/claude';
 import { loadHistory } from './pipeline';
-import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
+import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack, readCsvFiles } from '../services/dump';
 import { ClassificationRun, ClassificationResult, CrashReport } from '../types';
 import { getDataRoot } from '../utils/appPaths';
 
@@ -260,6 +260,7 @@ export function classificationRouter(io: SocketIOServer): Router {
       // ── Dump 분석 ──────────────────────────────────────────────────────
       let cdbCallStack: string | null = null;
       let stackSource = 'API';
+      let userLogCsv = '';
 
       try {
         emit('log', { message: 'PDB 파일 준비 중...' });
@@ -291,6 +292,10 @@ export function classificationRouter(io: SocketIOServer): Router {
           cdbCallStack = parsed.callStack;
           stackSource = osType === 'macos' ? 'minidump_stackwalk' : 'CDB';
         }
+
+        const crashExtractDir = path.join(pdbDir, String(crashId));
+        userLogCsv = readCsvFiles(crashExtractDir);
+        if (userLogCsv) emit('log', { message: `사용자 로그 CSV 로드됨 (${crashExtractDir})` });
       } catch (dumpErr: any) {
         emit('log', { message: `덤프 분석 실패: ${dumpErr.message.split('\n')[0]} — API 스택으로 폴백` });
       }
@@ -323,6 +328,10 @@ export function classificationRouter(io: SocketIOServer): Router {
       emit('log', { message: `스택 로드 완료 [출처: ${stackSource}]` });
       emit('log', { message: 'Claude 분석 시작...' });
 
+      const userLogSection = userLogCsv
+        ? `\n## 사용자 활동 로그 (크래시 직전 기록된 CSV)\n이 로그를 참고하여 크래시 직전 사용자가 수행한 작업을 파악하세요.\n${userLogCsv}\n`
+        : '';
+
       const prompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
 
 ## 크래시 정보
@@ -333,7 +342,7 @@ export function classificationRouter(io: SocketIOServer): Router {
 
 ## Call Stack:
 ${fullStack}
-
+${userLogSection}
 ## 분석 요청
 1. 크래시가 발생한 핵심 함수/모듈을 식별하세요 (OS/런타임 프레임 제외)
 2. 예외 코드와 스택 패턴을 기반으로 가능한 근본 원인을 설명하세요

@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
 import { analyzeAndFix, runClaude } from '../services/claude';
-import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
+import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack, readCsvFiles } from '../services/dump';
 import { checkoutRef, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
@@ -52,6 +52,7 @@ interface AIWaitState {
   releaseBranch: string;
   pipelineState: PipelineState;
   preAnalysis?: PipelinePreAnalysis;
+  userLogCsv?: string;
 }
 const aiWaitStates = new Map<string, AIWaitState>();
 
@@ -124,7 +125,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     res.json({ message: 'AI analysis started', crashId });
 
     const customPrompt: string | undefined = req.body?.customPrompt?.trim() || undefined;
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbTxtPath, releaseBranch, pipelineState, preAnalysis } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbTxtPath, releaseBranch, pipelineState, preAnalysis, userLogCsv } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -203,6 +204,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         model: loadConfig().claude.model,
         customPrompt,
         preAnalysisContext: preAnalysis,
+        userLogCsv,
       });
 
       if (aiResult.fixedFiles.length === 0) {
@@ -349,6 +351,11 @@ export function pipelineRouter(io: SocketIOServer): Router {
       emitSteps(crashId, steps);
       throwIfCancelled();
 
+      // Read user log CSV files extracted alongside the dump
+      const crashExtractDir = path.join(pdbDir, String(crashId));
+      const userLogCsv = readCsvFiles(crashExtractDir);
+      if (userLogCsv) log(2, `사용자 로그 CSV 로드됨 (${crashExtractDir})`);
+
       // Step 3: Analyze dump with CDB
       steps[3].status = 'running';
       emitSteps(crashId, steps);
@@ -406,6 +413,10 @@ export function pipelineRouter(io: SocketIOServer): Router {
 
       let preAnalysis: PipelinePreAnalysis | undefined;
       try {
+        const userLogSection = userLogCsv
+          ? `\n## 사용자 활동 로그 (크래시 직전 기록된 CSV)\n이 로그를 참고하여 크래시 직전 사용자가 수행한 작업을 파악하세요.\n${userLogCsv}\n`
+          : '';
+
         const prePrompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
 
 ## 크래시 정보
@@ -416,7 +427,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
 
 ## Call Stack:
 ${cdbCallStack}
-
+${userLogSection}
 ## 분석 요청
 1. 크래시가 발생한 핵심 함수/모듈을 식별하세요 (OS/런타임 프레임 제외)
 2. 예외 코드와 스택 패턴을 기반으로 가능한 근본 원인을 설명하세요
@@ -469,6 +480,7 @@ ${cdbCallStack}
         releaseBranch,
         pipelineState,
         preAnalysis,
+        userLogCsv: userLogCsv || undefined,
       });
 
       saveHistory({ crashId, runAt: new Date().toISOString(), status: 'awaiting_ai', releaseTag: releaseBranch, steps: [...steps], pipelineState, preAnalysis });

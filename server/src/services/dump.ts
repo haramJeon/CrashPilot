@@ -552,6 +552,35 @@ function extractCallStackMacos(output: string) {
   return { callStack: callStackLines.join('\n'), exceptionType, exceptionMessage: exceptionMessage.trim(), faultingModule };
 }
 
+/**
+ * Reads all CSV files from the crash extraction directory (user logs bundled in the dump zip).
+ * Returns last `maxLinesPerFile` lines per file, up to `maxFiles` files.
+ * Returns empty string if no CSV files found.
+ */
+export function readCsvFiles(
+  crashDir: string,
+  maxLinesPerFile = 100,
+  maxFiles = 3,
+): string {
+  if (!fs.existsSync(crashDir)) return '';
+  const csvFiles = fs.readdirSync(crashDir)
+    .filter((f) => f.toLowerCase().endsWith('.csv'))
+    .slice(0, maxFiles);
+  if (csvFiles.length === 0) return '';
+
+  const parts: string[] = [];
+  for (const f of csvFiles) {
+    try {
+      const content = fs.readFileSync(path.join(crashDir, f), 'utf-8');
+      const lines = content.split(/\r?\n/).filter((l) => l.trim());
+      const tail = lines.slice(-maxLinesPerFile);
+      const note = lines.length > maxLinesPerFile ? ` (최근 ${maxLinesPerFile}줄, 전체 ${lines.length}줄)` : '';
+      parts.push(`### ${f}${note}\n${tail.join('\n')}`);
+    } catch { /* skip unreadable files */ }
+  }
+  return parts.join('\n\n');
+}
+
 export function extractCallStack(
   output: string,
   osType: 'windows' | 'macos'

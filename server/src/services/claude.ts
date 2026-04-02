@@ -1,12 +1,82 @@
 import { spawn, execSync, ChildProcess } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import { FixedFile } from '../types';
+
+async function ensureNode(onLog?: (line: string) => void): Promise<void> {
+  try {
+    execSync('node --version', { stdio: 'ignore', timeout: 5000 });
+    return; // already installed
+  } catch { /* not found — install below */ }
+
+  if (process.platform !== 'win32') {
+    throw new Error('Node.js is not installed. Please install it from https://nodejs.org');
+  }
+
+  onLog?.('[Node] Node.js not found. Installing via winget (OpenJS.NodeJS.LTS)...');
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('winget', [
+      'install', 'OpenJS.NodeJS.LTS',
+      '-e', '--silent',
+      '--accept-package-agreements',
+      '--accept-source-agreements',
+    ], { stdio: ['ignore', 'pipe', 'pipe'], shell: true });
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`[winget] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`[winget] ${line}`);
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        onLog?.('[Node] Node.js installation complete.');
+        resolve();
+      } else {
+        reject(new Error(
+          `winget install failed (code ${code}). Please install Node.js manually from https://nodejs.org`
+        ));
+      }
+    });
+    proc.on('error', () => {
+      reject(new Error('winget not available. Please install Node.js manually from https://nodejs.org'));
+    });
+  });
+
+  // winget이 설치한 후 현재 프로세스의 PATH에는 반영이 안 되므로 수동으로 추가
+  const candidates = [
+    'C:\\Program Files\\nodejs',
+    path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs'),
+    path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      process.env.PATH = `${p};${process.env.PATH ?? ''}`;
+      onLog?.(`[Node] Added to PATH: ${p}`);
+      break;
+    }
+  }
+
+  try {
+    execSync('node --version', { stdio: 'ignore', timeout: 5000 });
+  } catch {
+    throw new Error('Node.js installation failed. Please install manually from https://nodejs.org');
+  }
+}
 
 async function ensureClaudeCli(onLog?: (line: string) => void): Promise<void> {
   try {
     execSync('claude --version', { stdio: 'ignore', timeout: 5000 });
     return; // already installed
   } catch { /* not found — install below */ }
+
+  await ensureNode(onLog);
 
   onLog?.('[Claude] claude CLI not found. Installing via npm...');
   onLog?.('[Claude] Running: npm install -g @anthropic-ai/claude-code');
@@ -39,11 +109,20 @@ async function ensureClaudeCli(onLog?: (line: string) => void): Promise<void> {
     proc.on('error', reject);
   });
 
-  // Verify installation succeeded
+  // npm global bin이 PATH에 없을 수 있으므로 추가 후 재확인
   try {
     execSync('claude --version', { stdio: 'ignore', timeout: 5000 });
   } catch {
-    throw new Error('claude CLI installation failed. Please run: npm install -g @anthropic-ai/claude-code');
+    try {
+      const npmBin = execSync('npm bin -g', { timeout: 5000 }).toString().trim();
+      if (npmBin && !process.env.PATH?.includes(npmBin)) {
+        process.env.PATH = `${npmBin};${process.env.PATH ?? ''}`;
+        onLog?.(`[Claude] Added npm global bin to PATH: ${npmBin}`);
+      }
+      execSync('claude --version', { stdio: 'ignore', timeout: 5000 });
+    } catch {
+      throw new Error('claude CLI installation failed. Please run: npm install -g @anthropic-ai/claude-code');
+    }
   }
 }
 

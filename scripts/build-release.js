@@ -117,6 +117,16 @@ for (const [from, to] of Object.entries(nameMap)) {
 console.log('\n=== Copying client build ===');
 copyDir(clientSrc, clientDest);
 
+// ── 6b. Copy tools/ (minidump_stackwalk binaries) ────────────────────────
+const toolsSrc = path.join(root, 'tools');
+const toolsDest = path.join(releaseDir, 'tools');
+if (fs.existsSync(toolsSrc)) {
+  console.log('\n=== Copying tools/ ===');
+  copyDir(toolsSrc, toolsDest);
+} else {
+  console.log('\n[warn] tools/ directory not found — skipping (macOS crash dump analysis may not work)');
+}
+
 // ── 7. Copy config.json template ─────────────────────────────────────────
 const configSrc = path.join(root, 'config.json');
 if (fs.existsSync(configSrc)) {

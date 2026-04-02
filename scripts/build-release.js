@@ -139,7 +139,26 @@ if (fs.existsSync(configSrc)) {
 // ── 8. Create empty data/ dir ─────────────────────────────────────────────
 fs.mkdirSync(path.join(releaseDir, 'data'), { recursive: true });
 
-// ── 9. Create zip archive ─────────────────────────────────────────────────
+// ── 9. Verify expected executables are present before zipping ────────────────
+console.log('\n=== Verifying release executables ===');
+const expectedExes = targets.map(t => {
+  if (t.includes('win')) return 'CrashPilot-win.exe';
+  if (t.includes('mac') && t.includes('arm64')) return 'CrashPilot-macos-arm64';
+  if (t.includes('mac')) return 'CrashPilot-macos-x64';
+  return 'CrashPilot-linux-x64';
+});
+for (const exe of [...new Set(expectedExes)]) {
+  const exePath = path.join(releaseDir, exe);
+  if (!fs.existsSync(exePath)) {
+    console.error(`\n[ERROR] Expected executable not found: ${exe}`);
+    console.error('  release/ directory contents:', fs.readdirSync(releaseDir).join(', '));
+    console.error('  Ensure @yao-pkg/pkg succeeded and the nameMap covers its output filename.');
+    process.exit(1);
+  }
+  console.log(`  ✓ ${exe}`);
+}
+
+// ── 10. Create zip archive ─────────────────────────────────────────────────
 const { version } = require(path.join(root, 'package.json'));
 const folderName = `crashPilot_${version}`;
 const zipName = `${folderName}.zip`;

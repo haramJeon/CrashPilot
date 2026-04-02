@@ -57,7 +57,7 @@ app.use('/api/git', gitRouter);
 app.use('/api/crash', crashRouter(io));
 app.use('/api/pipeline', pipelineRouter(io));
 app.use('/api/classification', classificationRouter(io));
-app.use('/api/update', updateRouter(io));
+app.use('/api/update', updateRouter());
 
 // SPA fallback
 app.get('*', (_req, res) => {

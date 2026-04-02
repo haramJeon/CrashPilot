@@ -3,14 +3,14 @@ import path from 'path';
 import { Router } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { fetchReportDetail, formatCallStack } from '../services/crashReportServer';
-import { analyzeAndFix } from '../services/claude';
+import { analyzeAndFix, runClaude } from '../services/claude';
 import { downloadPdbFiles, downloadDump, analyzeDump, extractCallStack } from '../services/dump';
 import { checkoutRef, createFixBranch, commitAndPush, applyFixes, initSubmodules, getRepoDirForBranch } from '../services/git';
 import { createPullRequest } from '../services/github';
 import { updateCrashRecord, getCrashRecord } from './crash';
 import { loadConfig } from '../services/config';
 import { getDataRoot } from '../utils/appPaths';
-import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory, PipelineState } from '../types';
+import type { CrashReport, CrashAnalysis, PipelineStep, PipelineRunHistory, PipelineState, PipelinePreAnalysis } from '../types';
 
 const HISTORY_DIR = path.join(getDataRoot(), 'data/pipeline-runs');
 
@@ -51,6 +51,7 @@ interface AIWaitState {
   dmpPath: string;
   releaseBranch: string;
   pipelineState: PipelineState;
+  preAnalysis?: PipelinePreAnalysis;
 }
 const aiWaitStates = new Map<string, AIWaitState>();
 
@@ -123,7 +124,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
     res.json({ message: 'AI analysis started', crashId });
 
     const customPrompt: string | undefined = req.body?.customPrompt?.trim() || undefined;
-    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbTxtPath, releaseBranch, pipelineState } = state;
+    const { steps, crash, subject, swVersion, cdbCallStack, cdbExceptionType, cdbFaultingModule, cdbTxtPath, releaseBranch, pipelineState, preAnalysis } = state;
 
     cancelFlags.set(crashId, false);
     const isCancelled = () => cancelFlags.get(crashId) === true;
@@ -201,6 +202,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
         shouldAbort: isCancelled,
         model: loadConfig().claude.model,
         customPrompt,
+        preAnalysisContext: preAnalysis,
       });
 
       if (aiResult.fixedFiles.length === 0) {
@@ -290,7 +292,7 @@ export function pipelineRouter(io: SocketIOServer): Router {
       { name: 'Prepare Work Dir',   status: 'pending' }, // 1  auto
       { name: 'Download Dump',      status: 'pending' }, // 2  auto
       { name: 'Analyze Dump',       status: 'pending' }, // 3  auto
-      { name: 'Run by AI',          status: 'pending' }, // 4  awaiting (gate)
+      { name: 'Crash Analysis',     status: 'pending' }, // 4  auto (pre-analysis) → awaiting
       { name: 'Clone / Pull',       status: 'pending' }, // 5  after click
       { name: 'Init Submodule',     status: 'pending' }, // 6  after click
       { name: 'AI Analysis & Fix',  status: 'pending' }, // 7  after click
@@ -397,10 +399,60 @@ export function pipelineRouter(io: SocketIOServer): Router {
         releaseBranch,
       };
 
-      // Pause — wait for manual AI trigger
-      steps[4].status = 'awaiting';
-      steps[4].message = 'Click "Run by AI" to continue';
+      // Step 4: Crash pre-analysis (auto — runs Claude on call stack, no code access)
+      steps[4].status = 'running';
+      steps[4].message = 'Call stack 분석 중...';
       emitSteps(crashId, steps);
+
+      let preAnalysis: PipelinePreAnalysis | undefined;
+      try {
+        const prePrompt = `당신은 C++ 크래시 리포트를 분석하는 전문가입니다. 코드 수정은 하지 않고 근본 원인 분석만 수행합니다.
+
+## 크래시 정보
+- Subject: ${detail.subject}
+- Exception Code: ${cdbExceptionType}
+- SW Version: ${detail.swVersion}
+- OS: ${crashOsType}
+
+## Call Stack:
+${cdbCallStack}
+
+## 분석 요청
+1. 크래시가 발생한 핵심 함수/모듈을 식별하세요 (OS/런타임 프레임 제외)
+2. 예외 코드와 스택 패턴을 기반으로 가능한 근본 원인을 설명하세요
+3. 이 크래시의 버그 유형을 분류하세요 (null 참조, use-after-free, 스택 오버플로, race condition 등)
+4. 코드를 수정하지 말고, 수정 방향에 대한 힌트만 제공하세요
+
+## 예외 코드 참고
+- 0xC0000005 (ACCESS_VIOLATION): ~0x0–0xFF 범위 = null 역참조; 큰 주소 = 댕글링 포인터
+- 0xC00000FD (STACK_OVERFLOW): 스택에 재귀 패턴 탐색
+- 0xC0000374 (heap corruption): 크래시 위치 ≠ 손상 위치 — 가장 이른 의심 프레임 탐색
+- 0x40000015 (FATAL_APP_EXIT): std::terminate — 처리되지 않은 예외 또는 순수 가상 호출
+
+## 출력 형식 (JSON만, 마크다운 없이)
+{"crashLocation":"크래시 발생 핵심 함수/모듈","bugType":"버그 유형 (한국어)","rootCause":"근본 원인 설명 (한국어, 3-5문장)","hints":"수정 방향 힌트 (한국어, 2-3문장, 코드 수정 없음)"}`;
+
+        const { promise } = runClaude(prePrompt, undefined, [], (line) => log(4, line), undefined, loadConfig().claude.model);
+        const raw = await promise;
+        throwIfCancelled();
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+        preAnalysis = {
+          crashLocation: parsed.crashLocation ?? '',
+          bugType:       parsed.bugType       ?? '',
+          rootCause:     parsed.rootCause     ?? '',
+          hints:         parsed.hints         ?? '',
+        };
+        steps[4].status = 'awaiting';
+        steps[4].message = '분석 완료 — 코드 수정 여부를 선택하세요';
+      } catch (preErr: any) {
+        if (preErr.message === '__CANCELLED__') throw preErr;
+        log(4, `Pre-analysis failed: ${preErr.message}`);
+        steps[4].status = 'awaiting';
+        steps[4].message = '분석 결과 없음 — 코드 수정 여부를 선택하세요';
+      }
+      emitSteps(crashId, steps);
+      throwIfCancelled();
 
       aiWaitStates.set(crashId, {
         steps,
@@ -416,10 +468,12 @@ export function pipelineRouter(io: SocketIOServer): Router {
         dmpPath,
         releaseBranch,
         pipelineState,
+        preAnalysis,
       });
 
-      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'awaiting_ai', releaseTag: releaseBranch, steps: [...steps], pipelineState });
+      saveHistory({ crashId, runAt: new Date().toISOString(), status: 'awaiting_ai', releaseTag: releaseBranch, steps: [...steps], pipelineState, preAnalysis });
       io.emit('pipeline:awaiting_ai', { crashId });
+      io.emit('pipeline:pre_analysis', { crashId, preAnalysis });
     } catch (error: any) {
       const runningIdx = steps.findIndex((s) => s.status === 'running');
       // pipelineState may be incomplete at this point — save what we have (undefined is fine for the type)
@@ -535,10 +589,12 @@ export function pipelineRouter(io: SocketIOServer): Router {
       dmpPath: ps.dmpPath,
       releaseBranch: ps.releaseBranch,
       pipelineState: ps,
+      preAnalysis: history.preAnalysis,
     });
 
     emitSteps(crashId, steps);
     io.emit('pipeline:awaiting_ai', { crashId });
+    io.emit('pipeline:pre_analysis', { crashId, preAnalysis: history.preAnalysis });
 
     res.json({ action: 'restored', fromStep });
   });

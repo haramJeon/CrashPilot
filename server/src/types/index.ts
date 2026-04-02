@@ -105,6 +105,13 @@ export interface PipelineStep {
   logs?: string[];
 }
 
+export interface PipelinePreAnalysis {
+  crashLocation: string;
+  bugType: string;
+  rootCause: string;
+  hints: string;
+}
+
 export interface PipelineRunHistory {
   crashId: string;
   runAt: string;
@@ -114,6 +121,7 @@ export interface PipelineRunHistory {
   analysis?: CrashAnalysis;
   errorMessage?: string;
   pipelineState?: PipelineState;
+  preAnalysis?: PipelinePreAnalysis;
 }
 
 export interface PipelineState {

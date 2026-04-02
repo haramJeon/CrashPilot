@@ -5,7 +5,7 @@ import { useSocket } from '../hooks/useSocket';
 import { apiGet, apiPost, apiPatch } from '../hooks/useApi';
 import StatusBadge from '../components/StatusBadge';
 import PipelineView from '../components/PipelineView';
-import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory, AppConfig } from '../types';
+import type { CrashReport, PipelineStep, CrashAnalysis, PipelineRunHistory, PipelinePreAnalysis, AppConfig } from '../types';
 import './CrashDetail.css';
 
 interface RemoteRef { name: string; short: string; type: 'branch' | 'tag'; }
@@ -19,6 +19,7 @@ export default function CrashDetail() {
   const [analysis, setAnalysis] = useState<CrashAnalysis | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
   const [history, setHistory] = useState<PipelineRunHistory | null>(null);
+  const [preAnalysis, setPreAnalysis] = useState<PipelinePreAnalysis | null>(null);
   const [refMatches, setRefMatches] = useState<RemoteRef[]>([]);
   const [refSearching, setRefSearching] = useState(false);
   const [refEditing, setRefEditing] = useState(false);
@@ -63,6 +64,7 @@ export default function CrashDetail() {
       setHistory(h);
       if (!socketReceivedRef.current) setSteps(h.steps);
       if (h.analysis) setAnalysis(h.analysis);
+      if (h.preAnalysis) setPreAnalysis(h.preAnalysis);
     }).catch(() => {});
 
     const socket = socketRef.current;
@@ -73,6 +75,10 @@ export default function CrashDetail() {
         socketReceivedRef.current = true;
         setSteps(data.steps);
       }
+    });
+
+    socket.on('pipeline:pre_analysis', (data: { crashId: string; preAnalysis: PipelinePreAnalysis }) => {
+      if (data.crashId === id) setPreAnalysis(data.preAnalysis ?? null);
     });
 
     socket.on('pipeline:complete', (data: { crashId: string; analysis: CrashAnalysis }) => {
@@ -90,6 +96,7 @@ export default function CrashDetail() {
 
     return () => {
       socket.off('pipeline:steps');
+      socket.off('pipeline:pre_analysis');
       socket.off('pipeline:complete');
       socket.off('pipeline:error');
     };
@@ -147,6 +154,7 @@ export default function CrashDetail() {
       setHistory(null);
       setSteps([]);
       setAnalysis(null);
+      setPreAnalysis(null);
       const payload = (!crash.releaseTag && history?.releaseTag)
         ? { ...crash, releaseTag: history.releaseTag }
         : crash;
@@ -328,16 +336,53 @@ export default function CrashDetail() {
             <h3>Pipeline Progress</h3>
 
             {isAwaitingAI && (
-              <div className="ai-prompt-box">
-                <label className="ai-prompt-label">Custom prompt (optional — overrides default crash analysis query)</label>
-                <textarea
-                  className="ai-prompt-textarea"
-                  rows={5}
-                  placeholder="Leave empty to use the default prompt, or enter a custom query to send directly to Claude..."
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                />
-              </div>
+              <>
+                {preAnalysis && (
+                  <div className="pre-analysis-box">
+                    <div className="pre-analysis-title">
+                      <Bot size={14} />
+                      Crash Pre-Analysis
+                    </div>
+                    <div className="pre-analysis-grid">
+                      {preAnalysis.crashLocation && (
+                        <div className="pre-analysis-row">
+                          <span className="pre-analysis-label">크래시 위치</span>
+                          <code className="pre-analysis-value-code">{preAnalysis.crashLocation}</code>
+                        </div>
+                      )}
+                      {preAnalysis.bugType && (
+                        <div className="pre-analysis-row">
+                          <span className="pre-analysis-label">버그 유형</span>
+                          <span className="pre-analysis-value">{preAnalysis.bugType}</span>
+                        </div>
+                      )}
+                      {preAnalysis.rootCause && (
+                        <div className="pre-analysis-row">
+                          <span className="pre-analysis-label">근본 원인</span>
+                          <span className="pre-analysis-value">{preAnalysis.rootCause}</span>
+                        </div>
+                      )}
+                      {preAnalysis.hints && (
+                        <div className="pre-analysis-row">
+                          <span className="pre-analysis-label">수정 힌트</span>
+                          <span className="pre-analysis-value pre-analysis-hints">{preAnalysis.hints}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="pre-analysis-confirm">위 분석을 바탕으로 소스코드를 수정하시겠습니까?</p>
+                  </div>
+                )}
+                <div className="ai-prompt-box">
+                  <label className="ai-prompt-label">Custom prompt (optional — overrides default crash analysis query)</label>
+                  <textarea
+                    className="ai-prompt-textarea"
+                    rows={5}
+                    placeholder="Leave empty to use the default prompt, or enter a custom query to send directly to Claude..."
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                  />
+                </div>
+              </>
             )}
             <PipelineView steps={steps} onRunAI={isAwaitingAI ? runAI : undefined} onRetry={retryStep} />
           </div>

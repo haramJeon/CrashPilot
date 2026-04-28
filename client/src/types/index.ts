@@ -84,6 +84,7 @@ export interface AppConfig {
     apiToken: string;
   };
   jiraSprintIds?: Record<string, number>;
+  kernelVersionMap?: Record<string, Record<string, string>>;
   autoUpdate?: {
     enabled?: boolean;
     githubRepo: string;

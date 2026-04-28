@@ -167,18 +167,16 @@ function ResultRow({
           )}
         </div>
         <div className="result-row-right">
-          {result.verdict === 'needs_analysis' && (
-            <button
-              className={`btn-analyze ${analysisState === 'running' ? 'running' : ''}`}
-              onClick={runAnalysis}
-              disabled={analysisState === 'running'}
-              title="추가 분석 실행"
-            >
-              {analysisState === 'running'
-                ? <><Loader2 size={12} className="spin" />분석 중...</>
-                : <><Search size={12} />추가 분석하기</>}
-            </button>
-          )}
+          <button
+            className={`btn-analyze ${analysisState === 'running' ? 'running' : ''}`}
+            onClick={runAnalysis}
+            disabled={analysisState === 'running'}
+            title="추가 분석 실행"
+          >
+            {analysisState === 'running'
+              ? <><Loader2 size={12} className="spin" />분석 중...</>
+              : <><Search size={12} />자세히 분석하기</>}
+          </button>
           {result.currentIssueKey && (
             <a
               href={issueHref(result.currentIssueKey)}

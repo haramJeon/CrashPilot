@@ -91,6 +91,7 @@ export interface AppConfig {
     apiToken: string;
   };
   jiraSprintIds?: Record<string, number>; // softwareId (as string) → Jira sprint ID
+  kernelVersionMap?: Record<string, Record<string, string>>; // softwareId → { swVersion → kernelVersion }
   autoUpdate?: {
     enabled?: boolean;    // default true — set false to disable update checks
     githubRepo: string;  // e.g. "org/crashPilot"

@@ -316,6 +316,17 @@ export function pipelineRouter(io: SocketIOServer): Router {
 
     let releaseBranch = crash.releaseTag || loadHistory(crashId)?.releaseTag || '';
 
+    // Auto-derive tag from softwareTagFolders config + swVersion (same logic as Dashboard buildTag)
+    if (!releaseBranch && crash.swVersion) {
+      const folder = loadConfig().git.softwareTagFolders?.[String(crash.softwareId)] ?? '';
+      if (folder) {
+        const parts = crash.swVersion.split('.');
+        const mainVersion = parts.slice(0, 3).join('.');
+        const build = parts[3] ?? '';
+        releaseBranch = build ? `${folder}/${mainVersion}/${build}` : `${folder}/${mainVersion}`;
+      }
+    }
+
     try {
       // Step 0: Load stack trace
       steps[0].status = 'running';
@@ -324,7 +335,6 @@ export function pipelineRouter(io: SocketIOServer): Router {
       const detail = await fetchReportDetail(crash.id);
       const callStack = formatCallStack(detail);
       const exceptionType = detail.exceptionCode || detail.bugcheck || 'Unknown Exception';
-      releaseBranch = releaseBranch || detail.releaseTag || '';
       if (!releaseBranch) throw new Error('releaseTag is not set. Please set it from the Dashboard before running.');
       updateCrashRecord(Number(crashId), { releaseTag: releaseBranch, osType: detail.osType });
 

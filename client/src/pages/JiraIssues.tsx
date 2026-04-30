@@ -71,7 +71,12 @@ export default function JiraIssues() {
     try {
       const data = await apiGet<SprintIssuesResponse>(`/jira/sprint-issues?softwareId=${selectedSoftwareId}`);
       setSprintId(data.sprintId);
-      setIssues(data.issues);
+      const sorted = [...data.issues].sort((a, b) => {
+        const numA = parseInt(a.key.split('-')[1] ?? '0', 10);
+        const numB = parseInt(b.key.split('-')[1] ?? '0', 10);
+        return numA - numB;
+      });
+      setIssues(sorted);
       if (data.issues.length === 0) {
         setIssuesError('이 소프트웨어의 스프린트에 열린 이슈가 없습니다.');
       }

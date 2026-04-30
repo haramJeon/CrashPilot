@@ -13,6 +13,7 @@ import { crashRouter } from './routes/crash';
 import { pipelineRouter } from './routes/pipeline';
 import { classificationRouter } from './routes/classification';
 import { updateRouter } from './routes/update';
+import { jiraRouter } from './routes/jira';
 
 dotenv.config();
 
@@ -58,6 +59,7 @@ app.use('/api/crash', crashRouter(io));
 app.use('/api/pipeline', pipelineRouter(io));
 app.use('/api/classification', classificationRouter(io));
 app.use('/api/update', updateRouter());
+app.use('/api/jira', jiraRouter());
 
 // SPA fallback
 app.get('*', (_req, res) => {

@@ -198,8 +198,8 @@ export function runClaude(
 
     const timer = setTimeout(() => {
       if (proc) killProcess(proc);
-      reject(new Error('Claude CLI timed out after 10 minutes'));
-    }, 600000);
+      reject(new Error('Claude CLI timed out after 20 minutes'));
+    }, 1200000);
 
     const abortPoller = shouldAbort
       ? setInterval(() => {

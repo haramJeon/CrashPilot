@@ -65,6 +65,15 @@ function copyDir(src, dest) {
   }
 }
 
+// ── 0. Ensure LFS files are real binaries ─────────────────────────────────
+console.log('\n=== Checking git LFS files ===');
+try {
+  execSync('git lfs pull', { cwd: root, stdio: 'inherit' });
+  console.log('git lfs pull done.');
+} catch {
+  console.warn('[warn] git lfs pull failed — LFS files may be pointer stubs. Continuing anyway.');
+}
+
 // ── 1. Clean release dir ──────────────────────────────────────────────────
 console.log('\n=== Cleaning release/ ===');
 if (fs.existsSync(releaseDir)) fs.rmSync(releaseDir, { recursive: true });
@@ -126,6 +135,28 @@ const toolsDest = path.join(releaseDir, 'tools');
 if (fs.existsSync(toolsSrc)) {
   console.log('\n=== Copying tools/ ===');
   copyDir(toolsSrc, toolsDest);
+
+  // Verify LFS binaries are real (pointer stubs are ~130 bytes)
+  const lfsMinSize = 10_000;
+  const lfsFiles = [
+    path.join(toolsDest, 'win', 'minidump_stackwalk.exe'),
+    path.join(toolsDest, 'win', 'dump_syms.exe'),
+    path.join(toolsDest, 'mac', 'minidump_stackwalk'),
+    path.join(toolsDest, 'mac', 'dump_syms'),
+  ];
+  let lfsOk = true;
+  for (const f of lfsFiles) {
+    if (!fs.existsSync(f)) continue;
+    const size = fs.statSync(f).size;
+    if (size < lfsMinSize) {
+      console.error(`\n[ERROR] LFS pointer stub detected: ${path.relative(root, f)} (${size} bytes)`);
+      console.error('  Run "git lfs pull" in the repo root and rebuild.');
+      lfsOk = false;
+    } else {
+      console.log(`  ✓ ${path.relative(root, f)} (${(size / 1024 / 1024).toFixed(1)} MB)`);
+    }
+  }
+  if (!lfsOk) process.exit(1);
 } else {
   console.log('\n[warn] tools/ directory not found — skipping (macOS crash dump analysis may not work)');
 }

@@ -141,7 +141,9 @@ export default function CrashDetail() {
 
   const hasStack = (crash?.stackTraces?.length ?? 0) > 0 || (crash?.mainStackTraces?.length ?? 0) > 0;
   const isRunning = socketReceivedRef.current && steps.some((s) => s.status === 'running');
-  const isAwaitingAI = socketReceivedRef.current && steps.some((s) => s.status === 'awaiting');
+  const isAwaitingAI =
+    (socketReceivedRef.current && steps.some((s) => s.status === 'awaiting')) ||
+    history?.status === 'awaiting_ai';
 
   const stopPipeline = async () => {
     if (!crash) return;

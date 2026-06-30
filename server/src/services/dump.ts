@@ -155,19 +155,23 @@ async function downloadKernelSymbols(
     return;
   }
 
-  onLog?.(`[Kernel] Downloading kernel package: ${zipName}`);
-  fs.mkdirSync(kernelLocalDir, { recursive: true });
-  const localZipPath = path.join(kernelLocalDir, zipName);
-  await copyFileAsync(networkZipPath, localZipPath, onLog);
-
-  await extract7z(localZipPath, kernelLocalDir, onLog);
-  fs.unlinkSync(localZipPath);
-
   // .dSYM files are in the lib/ subdir of the extracted kernel package
   const kernelLibDir = path.join(kernelLocalDir, 'lib');
-  if (!fs.existsSync(kernelLibDir)) {
-    onLog?.(`[Kernel] lib/ not found in extracted kernel package — skipping symbol conversion`);
-    return;
+
+  if (fs.existsSync(kernelLibDir)) {
+    onLog?.(`[Kernel] Already extracted: ${kernelLocalDir}`);
+  } else {
+    onLog?.(`[Kernel] Downloading kernel package: ${zipName}`);
+    fs.mkdirSync(kernelLocalDir, { recursive: true });
+    const localZipPath = path.join(kernelLocalDir, zipName);
+    await copyFileAsync(networkZipPath, localZipPath, onLog);
+    await extract7z(localZipPath, kernelLocalDir, onLog);
+    fs.unlinkSync(localZipPath);
+
+    if (!fs.existsSync(kernelLibDir)) {
+      onLog?.(`[Kernel] lib/ not found in extracted kernel package — skipping symbol conversion`);
+      return;
+    }
   }
 
   const isWin = process.platform === 'win32';

@@ -94,6 +94,7 @@ const DEFAULT_CONFIG: AppConfig = {
       "17": "pos"
     },
   },
+  kernelNetworkBaseDir: '\\\\10.100.1.220\\data\\packages\\dependencies\\medit-sdk\\kernel',
   // Sourced from Confluence "Medit Link Apps Release" (Kernel/Addin kit column, front half = kernel ver)
   kernelVersionMap: {
     "3": { // Medit Smile Design

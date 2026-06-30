@@ -7,6 +7,164 @@ import yauzl from 'yauzl';
 import { loadConfig } from './config';
 import { getAppRoot } from '../utils/appPaths';
 
+// ── 7-Zip extraction ──
+const SEVEN_ZIP_CANDIDATES = [
+  'C:\\Program Files\\7-Zip\\7z.exe',
+  'C:\\Program Files (x86)\\7-Zip\\7z.exe',
+  '7z',
+];
+
+function find7z(): string {
+  for (const candidate of SEVEN_ZIP_CANDIDATES) {
+    try {
+      execSync(`"${candidate}" i`, { stdio: 'ignore', timeout: 3000 });
+      return candidate;
+    } catch { /* not found */ }
+  }
+  throw new Error('7-Zip not found. Please install 7-Zip from https://www.7-zip.org');
+}
+
+function extract7z(archivePath: string, destDir: string, onLog?: (line: string) => void): Promise<void> {
+  const sevenZip = find7z();
+  return new Promise((resolve, reject) => {
+    onLog?.(`> Extracting 7z: ${path.basename(archivePath)}`);
+    const proc = spawn(sevenZip, ['x', archivePath, `-o${destDir}`, '-y'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`  ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`  ${line}`);
+      }
+    });
+    proc.on('close', (code) => {
+      if (code === 0) {
+        onLog?.('  7z extraction done.');
+        resolve();
+      } else {
+        reject(new Error(`7z extraction failed with code ${code}`));
+      }
+    });
+    proc.on('error', reject);
+  });
+}
+
+// ── dump_syms.py runner ──
+function findPython(): string {
+  for (const cmd of ['python3', 'python']) {
+    try {
+      execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 3000 });
+      return cmd;
+    } catch { /* not found */ }
+  }
+  throw new Error('Python not found. Please install Python 3 from https://www.python.org');
+}
+
+function runDumpSymsPy(
+  pyScriptPath: string,
+  dumpSymsExe: string,
+  dsymPath: string,
+  symOutputPath: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const python = findPython();
+  return new Promise((resolve, reject) => {
+    onLog?.(`> Running dump_syms.py: ${dsymPath} → ${symOutputPath}`);
+    const proc = spawn(python, [pyScriptPath, dumpSymsExe, dsymPath, symOutputPath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`  [dump_syms] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+        if (line.trim()) onLog?.(`  [dump_syms] ${line}`);
+      }
+    });
+    proc.on('close', (code) => {
+      if (code === 0) {
+        onLog?.('  dump_syms conversion done.');
+        resolve();
+      } else {
+        reject(new Error(`dump_syms.py failed with code ${code}`));
+      }
+    });
+    proc.on('error', reject);
+  });
+}
+
+// ── Kernel symbol download + conversion ──
+async function downloadKernelSymbols(
+  kernelVersion: string,
+  appExtractDir: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const config = loadConfig();
+  const kernelNetworkDir = config.kernelNetworkBaseDir
+    || '\\\\10.100.1.220\\data\\packages\\dependencies\\medit-sdk\\kernel';
+  const localBaseDir = config.releaseBuildBaseDir;
+
+  // Kernel 7z file: kernel-{version}-darwin-arm64.7z
+  const zipName = `kernel-${kernelVersion}-darwin-arm64.7z`;
+  const networkZipPath = path.join(kernelNetworkDir, zipName);
+
+  // Local extraction dir: {releaseBuildBaseDir}/kernel/{kernelVersion}/
+  const kernelLocalDir = path.join(localBaseDir, 'kernel', kernelVersion);
+  const markerFile = path.join(kernelLocalDir, '.syms_done');
+
+  // Resolve the app sym subdir (same logic as analyzeDumpMacos) so kernel syms land next to app syms
+  const appSymOutputDir = (() => {
+    if (!fs.existsSync(appExtractDir)) return appExtractDir;
+    const subDir = fs.readdirSync(appExtractDir)
+      .filter((name) => !/^\d+$/.test(name))
+      .map((name) => path.join(appExtractDir, name))
+      .find((p) => fs.statSync(p).isDirectory());
+    return subDir ?? appExtractDir;
+  })();
+
+  if (fs.existsSync(markerFile)) {
+    onLog?.(`[Kernel] Already converted (${kernelVersion}) — skipping`);
+    return;
+  }
+
+  onLog?.(`[Kernel] Downloading kernel package: ${zipName}`);
+  fs.mkdirSync(kernelLocalDir, { recursive: true });
+  const localZipPath = path.join(kernelLocalDir, zipName);
+  await copyFileAsync(networkZipPath, localZipPath, onLog);
+
+  await extract7z(localZipPath, kernelLocalDir, onLog);
+  fs.unlinkSync(localZipPath);
+
+  // .dSYM files are in the lib/ subdir of the extracted kernel package
+  const kernelLibDir = path.join(kernelLocalDir, 'lib');
+  if (!fs.existsSync(kernelLibDir)) {
+    onLog?.(`[Kernel] lib/ not found in extracted kernel package — skipping symbol conversion`);
+    return;
+  }
+
+  const dumpSymsPy = path.join(getAppRoot(), 'scripts', 'dump_syms.py');
+  const dumpSymsExe = path.join(getAppRoot(), 'tools', 'mac', 'dump_syms');
+
+  if (!fs.existsSync(dumpSymsPy) || !fs.existsSync(dumpSymsExe)) {
+    onLog?.(`[Kernel] dump_syms tools not found — skipping symbol conversion`);
+    onLog?.(`  dump_syms.py : ${dumpSymsPy}`);
+    onLog?.(`  dump_syms    : ${dumpSymsExe}`);
+    return;
+  }
+
+  fs.mkdirSync(appSymOutputDir, { recursive: true });
+  await runDumpSymsPy(dumpSymsPy, dumpSymsExe, kernelLibDir, appSymOutputDir, onLog);
+
+  fs.writeFileSync(markerFile, new Date().toISOString(), 'utf-8');
+  onLog?.(`[Kernel] Kernel symbols ready at ${appSymOutputDir}`);
+}
+
 /**
  * Ensures the release build zip is extracted locally (PDB / symbol files).
  *
@@ -76,6 +234,20 @@ export async function downloadPdbFiles(
 
     fs.unlinkSync(localZipPath);
     onLog?.(`  Done — ${osFolderName} symbols available at ${extractDir}`);
+  }
+
+  // For macOS crashes, download and convert kernel symbols if a mapping exists
+  if (osType === 'macos') {
+    const kernelVersion = config.kernelVersionMap?.[String(softwareId)]?.[swVersion];
+    if (kernelVersion) {
+      onLog?.(`[Kernel] Found kernel mapping: sw ${swVersion} → kernel ${kernelVersion}`);
+      try {
+        await downloadKernelSymbols(kernelVersion, extractDir, onLog);
+      } catch (err: any) {
+        onLog?.(`[Kernel] Warning: kernel symbol download failed — ${err.message}`);
+        onLog?.(`[Kernel] Analysis will continue without kernel symbols`);
+      }
+    }
   }
 
   return extractDir;

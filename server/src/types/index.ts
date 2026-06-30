@@ -92,6 +92,7 @@ export interface AppConfig {
   };
   jiraSprintIds?: Record<string, number>; // softwareId (as string) → Jira sprint ID
   kernelVersionMap?: Record<string, Record<string, string>>; // softwareId → { swVersion → kernelVersion }
+  kernelNetworkBaseDir?: string; // UNC/network path containing kernel-{version}-darwin-arm64.7z files
   autoUpdate?: {
     enabled?: boolean;    // default true — set false to disable update checks
     githubRepo: string;  // e.g. "org/crashPilot"

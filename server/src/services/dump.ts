@@ -149,12 +149,22 @@ async function downloadKernelSymbols(
   }
 
   const dumpSymsPy = path.join(getAppRoot(), 'scripts', 'dump_syms.py');
-  const dumpSymsExe = path.join(getAppRoot(), 'tools', 'mac', 'dump_syms');
+  const isWin = process.platform === 'win32';
+  const dumpSymsExe = isWin
+    ? path.join(getAppRoot(), 'tools', 'win', 'dump_syms.exe')
+    : path.join(getAppRoot(), 'tools', 'mac', 'dump_syms');
 
-  if (!fs.existsSync(dumpSymsPy) || !fs.existsSync(dumpSymsExe)) {
-    onLog?.(`[Kernel] dump_syms tools not found — skipping symbol conversion`);
-    onLog?.(`  dump_syms.py : ${dumpSymsPy}`);
-    onLog?.(`  dump_syms    : ${dumpSymsExe}`);
+  if (!fs.existsSync(dumpSymsPy)) {
+    onLog?.(`[Kernel] scripts/dump_syms.py not found at ${dumpSymsPy} — skipping symbol conversion`);
+    return;
+  }
+  if (!fs.existsSync(dumpSymsExe)) {
+    onLog?.(`[Kernel] dump_syms binary not found — skipping symbol conversion`);
+    onLog?.(`  Expected path: ${dumpSymsExe}`);
+    if (isWin) {
+      onLog?.(`  Download dump_syms.exe (Windows) from: https://github.com/mozilla/dump_syms/releases`);
+      onLog?.(`  Place it at: tools/win/dump_syms.exe`);
+    }
     return;
   }
 

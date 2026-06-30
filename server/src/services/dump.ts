@@ -53,50 +53,72 @@ function extract7z(archivePath: string, destDir: string, onLog?: (line: string) 
   });
 }
 
-// ── dump_syms.py runner ──
-function findPython(): string {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 3000 });
-      return cmd;
-    } catch { /* not found */ }
-  }
-  throw new Error('Python not found. Please install Python 3 from https://www.python.org');
-}
-
-function runDumpSymsPy(
-  pyScriptPath: string,
+// ── .dSYM → Breakpad .sym conversion ──
+// Runs dump_syms on each .dSYM bundle found under dsymDir and writes
+// the resulting .sym files into symOutputDir using the breakpad layout:
+//   {symOutputDir}/{ModuleName}/{Hash}/{ModuleName}.sym
+async function convertDsymToSym(
   dumpSymsExe: string,
-  dsymPath: string,
-  symOutputPath: string,
+  dsymDir: string,
+  symOutputDir: string,
   onLog?: (line: string) => void,
 ): Promise<void> {
-  const python = findPython();
-  return new Promise((resolve, reject) => {
-    onLog?.(`> Running dump_syms.py: ${dsymPath} → ${symOutputPath}`);
-    const proc = spawn(python, [pyScriptPath, dumpSymsExe, dsymPath, symOutputPath], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const dSYMBundles = fs.readdirSync(dsymDir)
+    .filter((name) => name.endsWith('.dSYM'))
+    .map((name) => path.join(dsymDir, name));
+
+  if (dSYMBundles.length === 0) {
+    onLog?.(`  No .dSYM bundles found in ${dsymDir}`);
+    return;
+  }
+
+  onLog?.(`> Converting ${dSYMBundles.length} .dSYM bundle(s) → ${symOutputDir}`);
+
+  for (const dsymBundle of dSYMBundles) {
+    const moduleName = path.basename(dsymBundle, '.dSYM');
+    onLog?.(`  [dump_syms] ${path.basename(dsymBundle)}`);
+
+    const symContent = await new Promise<string>((resolve, reject) => {
+      const proc = spawn(dumpSymsExe, [dsymBundle], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks: Buffer[] = [];
+      proc.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        for (const line of chunk.toString('utf8').split(/\r?\n/)) {
+          if (line.trim()) onLog?.(`  [dump_syms] ${line}`);
+        }
+      });
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(Buffer.concat(chunks).toString('utf8'));
+        } else {
+          reject(new Error(`dump_syms failed (code ${code}) for ${path.basename(dsymBundle)}`));
+        }
+      });
+      proc.on('error', reject);
     });
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
-        if (line.trim()) onLog?.(`  [dump_syms] ${line}`);
-      }
-    });
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      for (const line of chunk.toString('utf8').split(/\r?\n/)) {
-        if (line.trim()) onLog?.(`  [dump_syms] ${line}`);
-      }
-    });
-    proc.on('close', (code) => {
-      if (code === 0) {
-        onLog?.('  dump_syms conversion done.');
-        resolve();
-      } else {
-        reject(new Error(`dump_syms.py failed with code ${code}`));
-      }
-    });
-    proc.on('error', reject);
-  });
+
+    // First line: MODULE mac arm64 <HASH> <ModuleName>
+    const firstLine = symContent.split('\n')[0].trim();
+    const parts = firstLine.split(' ');
+    if (parts.length < 5 || parts[0] !== 'MODULE') {
+      onLog?.(`  [dump_syms] Unexpected output format, skipping ${moduleName}`);
+      continue;
+    }
+    const hash = parts[3];
+    const symFileName = parts.slice(4).join(' '); // module name from header
+
+    const symDir = path.join(symOutputDir, symFileName, hash);
+    fs.mkdirSync(symDir, { recursive: true });
+    const symFilePath = path.join(symDir, `${symFileName}.sym`);
+
+    if (fs.existsSync(symFilePath)) {
+      onLog?.(`  [dump_syms] Already exists: ${symFileName}.sym — skip`);
+      continue;
+    }
+
+    fs.writeFileSync(symFilePath, symContent, 'utf-8');
+    onLog?.(`  [dump_syms] Written: ${symFileName}/${hash}/${symFileName}.sym`);
+  }
 }
 
 // ── Kernel symbol download + conversion ──
@@ -148,28 +170,19 @@ async function downloadKernelSymbols(
     return;
   }
 
-  const dumpSymsPy = path.join(getAppRoot(), 'scripts', 'dump_syms.py');
   const isWin = process.platform === 'win32';
   const dumpSymsExe = isWin
     ? path.join(getAppRoot(), 'tools', 'win', 'dump_syms.exe')
     : path.join(getAppRoot(), 'tools', 'mac', 'dump_syms');
 
-  if (!fs.existsSync(dumpSymsPy)) {
-    onLog?.(`[Kernel] scripts/dump_syms.py not found at ${dumpSymsPy} — skipping symbol conversion`);
-    return;
-  }
   if (!fs.existsSync(dumpSymsExe)) {
     onLog?.(`[Kernel] dump_syms binary not found — skipping symbol conversion`);
     onLog?.(`  Expected path: ${dumpSymsExe}`);
-    if (isWin) {
-      onLog?.(`  Download dump_syms.exe (Windows) from: https://github.com/mozilla/dump_syms/releases`);
-      onLog?.(`  Place it at: tools/win/dump_syms.exe`);
-    }
     return;
   }
 
   fs.mkdirSync(appSymOutputDir, { recursive: true });
-  await runDumpSymsPy(dumpSymsPy, dumpSymsExe, kernelLibDir, appSymOutputDir, onLog);
+  await convertDsymToSym(dumpSymsExe, kernelLibDir, appSymOutputDir, onLog);
 
   fs.writeFileSync(markerFile, new Date().toISOString(), 'utf-8');
   onLog?.(`[Kernel] Kernel symbols ready at ${appSymOutputDir}`);

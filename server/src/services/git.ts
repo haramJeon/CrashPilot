@@ -186,9 +186,34 @@ function gitNolfs(baseDir: string, onLog?: (line: string) => void) {
 }
 
 /**
+ * Find the actual remote ref name, ignoring case.
+ * Returns the exact ref as it exists on the remote, or null if not found.
+ */
+async function resolveRefCaseInsensitive(repoUrl: string, ref: string): Promise<string | null> {
+  const output = execSync(`git ls-remote --heads --tags "${repoUrl}"`, {
+    encoding: 'utf-8',
+    timeout: 30000,
+  });
+  const refLower = ref.toLowerCase();
+  for (const line of output.split('\n')) {
+    const parts = line.trim().split('\t');
+    if (parts.length < 2) continue;
+    const remote = parts[1];
+    const short = remote.startsWith('refs/heads/')
+      ? remote.slice('refs/heads/'.length)
+      : remote.startsWith('refs/tags/') && !remote.endsWith('^{}')
+        ? remote.slice('refs/tags/'.length)
+        : null;
+    if (short && short.toLowerCase() === refLower) return short;
+  }
+  return null;
+}
+
+/**
  * Checkout a branch or tag into a version subfolder.
  * - Branch: clone --branch <name> --single-branch, or pull
  * - Tag: clone --branch <tag> --single-branch (tags work as --branch value)
+ * If the exact ref is not found, retries with case-insensitive matching.
  */
 export async function checkoutRef(ref: string, onLog?: (line: string) => void): Promise<string> {
   const config = loadConfig();
@@ -208,7 +233,30 @@ export async function checkoutRef(ref: string, onLog?: (line: string) => void): 
       ]);
     } catch (err: any) {
       fs.rmSync(repoDir, { recursive: true, force: true });
-      throw new Error(`Failed to clone ref "${ref}": ${err.message}`);
+
+      // Retry with case-insensitive ref lookup
+      onLog?.(`[git] Ref "${ref}" not found — searching remote refs (case-insensitive)...`);
+      const actualRef = await resolveRefCaseInsensitive(repoUrl, ref).catch(() => null);
+      if (!actualRef || actualRef === ref) {
+        throw new Error(`Failed to clone ref "${ref}": ${err.message}`);
+      }
+
+      onLog?.(`[git] Found ref with different case: "${actualRef}" — retrying clone`);
+      const actualRepoDir = getRepoDirForBranch(actualRef);
+      if (!fs.existsSync(actualRepoDir)) {
+        fs.mkdirSync(actualRepoDir, { recursive: true });
+      }
+      try {
+        await gitWithLog(undefined, onLog).clone(repoUrl, actualRepoDir, [
+          '--branch', actualRef,
+          '--depth', '20',
+          '--progress',
+        ]);
+      } catch (retryErr: any) {
+        fs.rmSync(actualRepoDir, { recursive: true, force: true });
+        throw new Error(`Failed to clone ref "${actualRef}": ${retryErr.message}`);
+      }
+      return actualRepoDir;
     }
   } else {
     onLog?.(`> git fetch origin ${ref} --progress  (in ${repoDir})`);

@@ -237,6 +237,12 @@ export async function downloadPdbFiles(
   const zipNetworkPath = osType === 'macos'
     ? path.join(networkBase, softwarePath, majorMinorPatch, 'macOS', 'Build', zipName)
     : path.join(networkBase, softwarePath, majorMinorPatch, 'Windows', 'Build', zipName);
+  // Fallback: \\10.100.1.20\Build_Repository\ReleaseBuild (for unreleased/pre-release builds)
+  // ReleaseBuild omits the inner 'Build' subfolder: .../macOS/{zip} instead of .../macOS/Build/{zip}
+  const networkBaseFallback = path.join(path.dirname(networkBase), 'ReleaseBuild');
+  const zipNetworkPathFallback = osType === 'macos'
+    ? path.join(networkBaseFallback, softwarePath, majorMinorPatch, 'macOS', zipName)
+    : path.join(networkBaseFallback, softwarePath, majorMinorPatch, 'Windows', zipName);
   const extractDir = path.join(localBaseDir, appFolder, osFolderName, extractDirName);
 
   const alreadyExtracted = fs.existsSync(extractDir) &&
@@ -251,7 +257,13 @@ export async function downloadPdbFiles(
     onLog?.(`> Copying zip from network...`);
     onLog?.(`  ${zipNetworkPath}`);
     onLog?.(`  → ${localZipPath}`);
-    await copyFileAsync(zipNetworkPath, localZipPath, onLog);
+    try {
+      await copyFileAsync(zipNetworkPath, localZipPath, onLog);
+    } catch {
+      onLog?.(`  Not found in Product_Release — retrying from ReleaseBuild...`);
+      onLog?.(`  ${zipNetworkPathFallback}`);
+      await copyFileAsync(zipNetworkPathFallback, localZipPath, onLog);
+    }
     onLog?.(`  Copy done.`);
 
     onLog?.(`> Extracting...`);

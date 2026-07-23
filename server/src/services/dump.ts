@@ -201,7 +201,7 @@ async function downloadKernelSymbols(
  *
  * macOS:
  *   Network zip : {buildNetworkBaseDir}/{softwareBuildPath}/{major.minor.patch}/macOS/Build/{version}-mac-release-sym.zip
- *   Extracted to: {releaseBuildBaseDir}/{appFolder}/macOS/{major.minor.patch}/
+ *   Extracted to: {releaseBuildBaseDir}/{appFolder}/macOS/{swVersion}/
  *
  * Returns the local extract directory path.
  */
@@ -230,7 +230,7 @@ export async function downloadPdbFiles(
   // Windows: {networkBase}/{softwarePath}/{M.m.p}/Windows/Build/{swVersion}_Release.zip
   // macOS:   {networkBase}/{softwarePath}/{M.m.p}/macOS/Build/{swVersion}-mac-release-sym.zip
   const osFolderName = osType === 'macos' ? 'macOS' : 'Windows';
-  const extractDirName = osType === 'macos' ? majorMinorPatch : `${swVersion}_Release`;
+  const extractDirName = osType === 'macos' ? swVersion : `${swVersion}_Release`;
   const zipName = osType === 'macos'
     ? `${swVersion}-mac-release-sym.zip`
     : `${swVersion}_Release.zip`;

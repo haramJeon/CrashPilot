@@ -48,6 +48,10 @@ const DEFAULT_CONFIG: AppConfig = {
       dsymPath: '',
     },
   },
+  autoUpdate: {
+    enabled: true,
+    githubRepo: 'haramJeon/CrashPilot',
+  },
   jira: {
     url: '',
     email: '',
@@ -245,6 +249,7 @@ export function loadConfig(): AppConfig {
       const merged: AppConfig = {
         ...DEFAULT_CONFIG,
         ...raw,
+        autoUpdate: { ...DEFAULT_CONFIG.autoUpdate, ...raw.autoUpdate },
         softwareBuildPaths: { ...DEFAULT_CONFIG.softwareBuildPaths, ...raw.softwareBuildPaths },
         crashReportServer: { ...DEFAULT_CONFIG.crashReportServer, ...raw.crashReportServer },
         claude: { ...DEFAULT_CONFIG.claude, ...raw.claude },
